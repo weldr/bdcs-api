@@ -1,0 +1,9 @@
+.cabal-sandbox
+cabal.sandbox.config
+dist
+.*.swp
+*.tix
+*.sql
+*.db
+*.pyc
+*.tar
