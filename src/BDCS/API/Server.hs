@@ -70,11 +70,12 @@ instance FromJSON ServerStatus
 
 type CommonAPI = "status" :> Get '[JSON] ServerStatus
 
+
+serverStatus :: Handler ServerStatus
+serverStatus = return (ServerStatus "0.0.0" "0" "0" False)
+
 commonServer :: Server CommonAPI
 commonServer = serverStatus
-  where
-    serverStatus :: Handler ServerStatus
-    serverStatus = return (ServerStatus "0.0.0" "0" "0" False)
 
 type CombinedAPI = CommonAPI
               :<|> "api" :> "v0" :> V0API

@@ -83,39 +83,41 @@ v0ApiServer repoLock pool = pkgInfoH
                        :<|> listRecipesH
                        :<|> depsolvePkgH
   where
-    dbTestH              = liftIO dbTest
-    pkgInfoH package     = liftIO $ packageInfo package
-    listRecipesH         = liftIO $ listRecipes "master"
-    depsolvePkgH package = liftIO $ depsolvePkg package
+    pkgInfoH package     = liftIO $ packageInfo pool package
+    dbTestH              = liftIO $ dbTest pool
+    listRecipesH         = liftIO $ listRecipes repoLock "master"
+    depsolvePkgH package = liftIO $ depsolvePkg pool package
 
-    packageInfo :: T.Text -> IO PackageInfo
-    packageInfo package = flip runSqlPersistMPool pool $ do
-        mproj <- findProject package
-        let proj_id = fromJust mproj
-        mproject <- getProject proj_id
-        let project = fromJust mproject
-        liftIO $ print project
-        let name = projectsName project
-        let summary = projectsSummary project
-        return (PackageInfo name summary)
+packageInfo :: ConnectionPool -> T.Text -> IO PackageInfo
+packageInfo pool package = flip runSqlPersistMPool pool $ do
+    mproj <- findProject package
+    let proj_id = fromJust mproj
+    mproject <- getProject proj_id
+    let project = fromJust mproject
+    liftIO $ print project
+    let name = projectsName project
+    let summary = projectsSummary project
+    return (PackageInfo name summary)
 
-    dbTest :: IO DbTest
-    dbTest = flip runSqlPersistMPool pool $ do
-        mproj <- findProject "anaconda"
-        let proj = fromJust mproj
-        return (DbTest "fix this")
+dbTest :: ConnectionPool -> IO DbTest
+dbTest pool = flip runSqlPersistMPool pool $ do
+    mproj <- findProject "anaconda"
+    let proj = fromJust mproj
+    return (DbTest "fix this")
 
-    listRecipes :: T.Text -> IO [T.Text]
-    listRecipes branch = do
-        RWL.withRead (gitRepoLock repoLock) $ do
-            listBranchFiles (gitRepo repoLock) branch
+listRecipes :: GitLock -> T.Text -> IO [T.Text]
+listRecipes repoLock branch = do
+    RWL.withRead (gitRepoLock repoLock) $ do
+        listBranchFiles (gitRepo repoLock) branch
 
-    depsolvePkg :: T.Text -> IO [T.Text]
-    depsolvePkg package = do
-        result <- runExceptT $ flip runSqlPool pool $ do
-            formula <- depclose ["x86_64"] [package]
-            solution <- solveCNF (formulaToCNF formula)
-            mapMaybeM groupIdToNevra $ map fst $ filter snd solution
-        case result of
-            Left e            -> return []
-            Right assignments -> return assignments
+depsolvePkg :: ConnectionPool -> T.Text -> IO [T.Text]
+depsolvePkg pool package = do
+    result <- runExceptT $ flip runSqlPool pool $ do
+        formula <- depclose ["x86_64"] [package]
+        solution <- solveCNF (formulaToCNF formula)
+        mapMaybeM groupIdToNevra $ map fst $ filter snd solution
+    case result of
+        Left e            -> return []
+        Right assignments -> return assignments
+
+
