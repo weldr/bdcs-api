@@ -21,6 +21,7 @@ module Cmdline(CliOptions(..),
 
 import           System.Console.GetOpt
 import           System.Environment(getArgs)
+import           Text.Printf(printf)
 
 --
 -- Commandline parsing
@@ -31,14 +32,20 @@ data CliOptions = CliOptions
     , optShowVersion :: Bool
     , optPort        :: Int
     , optHostIP      :: String
+    , optLogfile     :: FilePath
+    , optMockfiles   :: FilePath
+    , optBDCS        :: FilePath
     } deriving Show
 
 defaultOptions :: CliOptions
 defaultOptions    = CliOptions
     { optVerbose     = False
     , optShowVersion = False
-    , optPort        = 8000
-    , optHostIP      = "0.0.0.0"
+    , optPort        = 4000
+    , optHostIP      = "127.0.0.1"
+    , optLogfile     = "/var/log/bdcs-api.log"
+    , optMockfiles   = "/var/tmp/bdcs-mockfiles"
+    , optBDCS        = "/mddb/cs.repo/"
     }
 
 cliOptions :: [OptDescr (CliOptions -> CliOptions)]
@@ -51,10 +58,19 @@ cliOptions =
         "show version number"
     , Option ['p']     ["port"]
         (ReqArg (\port opts -> opts { optPort = read port }) "PORT")
-        "API Server port"
+        (printf "Port to bind to (%d)" $ optPort defaultOptions)
     , Option ['h']     ["host"]
-        (ReqArg (\host opts -> opts { optHostIP = host }) "HOST")
-        "API Host IP"
+        (ReqArg (\host opts -> opts { optHostIP = host }) "HOSTNAME|IP")
+        (printf "Host or IP to bind to (%s)" $ optHostIP defaultOptions)
+    , Option ['l']     ["log"]
+        (ReqArg (\logfile opts -> opts { optLogfile = logfile }) "LOGFILE")
+        (printf "Path to JSON logfile (%s)" $ optLogfile defaultOptions)
+    , Option ['m']     ["mockfiles"]
+        (ReqArg (\mockfiles opts -> opts { optMockfiles = mockfiles }) "MOCKFILES")
+        (printf "Path to JSON files used for /api/mock/ paths (%s)" $ optMockfiles defaultOptions)
+    , Option ['b']     ["bdcs"]
+        (ReqArg (\bdcs opts -> opts { optBDCS = bdcs }) "BDCS")
+        (printf "Path to the content store directory (%s)" $ optBDCS defaultOptions)
     ]
 
 cliHeader :: String
