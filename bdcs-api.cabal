@@ -17,7 +17,8 @@ extra-source-files:     ChangeLog.md
 cabal-version:          >=1.10
 
 library
-    exposed-modules:    BDCS.API.Recipe,
+    exposed-modules:    BDCS.API.Error,
+                        BDCS.API.Recipe,
                         BDCS.API.Server,
                         BDCS.API.Utils,
                         BDCS.API.V0,
@@ -35,6 +36,7 @@ library
                         gi-gio,
                         gi-ggit,
                         gi-glib,
+                        http-types,
                         htoml,
                         memory < 0.14.6,
                         monad-logger,

@@ -28,6 +28,7 @@ module BDCS.API.V0(DbTest(..),
                    v0ApiServer)
   where
 
+import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
 import           BDCS.API.Utils(GitLock(..))
 import           BDCS.DB
@@ -76,17 +77,20 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
         :<|> "dbtest"   :> Get '[JSON] DbTest
         :<|> "recipes"  :> "list" :> Get '[JSON] [T.Text]
         :<|> "depsolve" :> Capture "package" T.Text :> Get '[JSON] [T.Text]
+        :<|> "errtest"  :> Get '[JSON] [T.Text]
 
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
                        :<|> dbTestH
                        :<|> listRecipesH
                        :<|> depsolvePkgH
+                       :<|> errTestH
   where
     pkgInfoH package     = liftIO $ packageInfo pool package
     dbTestH              = liftIO $ dbTest pool
     listRecipesH         = liftIO $ listRecipes repoLock "master"
     depsolvePkgH package = liftIO $ depsolvePkg pool package
+    errTestH             = errTest
 
 packageInfo :: ConnectionPool -> T.Text -> IO PackageInfo
 packageInfo pool package = flip runSqlPersistMPool pool $ do
@@ -120,4 +124,8 @@ depsolvePkg pool package = do
         Left e            -> return []
         Right assignments -> return assignments
 
-
+errTest :: Handler [T.Text]
+errTest = throwError myError
+  where
+    myError :: ServantErr
+    myError = createApiError err503 "test_api_error" "This is a test of an API Error Response"
