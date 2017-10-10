@@ -45,4 +45,4 @@ main = do
     let sqliteDbPath = args !! 0
     let gitRepoPath = args !! 1
 
-    runServer 8000 gitRepoPath sqliteDbPath
+    runServer (optPort opts) gitRepoPath sqliteDbPath
