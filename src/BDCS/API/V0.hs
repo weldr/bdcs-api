@@ -16,6 +16,8 @@
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -24,12 +26,15 @@
 
 module BDCS.API.V0(DbTest(..),
                    PackageInfo(..),
+                   RecipesListResponse(..),
+                   RecipesInfoResponse(..),
                    V0API,
                    v0ApiServer)
   where
 
 import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
+import           BDCS.API.Recipes
 import           BDCS.API.Utils(GitLock(..))
 import           BDCS.DB
 import           BDCS.Depclose(depclose)
@@ -38,6 +43,7 @@ import           BDCS.Groups(groupIdToNevra)
 import           Utils.Monad(mapMaybeM)
 import           BDCS.Projects(findProject, getProject)
 import qualified Control.Concurrent.ReadWriteLock as RWL
+import qualified Control.Exception as CE
 import           Control.Monad.Except
 import           Control.Monad.Logger(runStderrLoggingT)
 import           Control.Monad.Reader
@@ -58,6 +64,8 @@ import           Network.Wai.Middleware.Servant.Options
 import           Servant
 
 
+{-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
+
 data DbTest = DbTest
   {  dbStuff :: String
   } deriving (Generic, Eq, Show)
@@ -75,22 +83,25 @@ instance FromJSON PackageInfo
 
 type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
         :<|> "dbtest"   :> Get '[JSON] DbTest
-        :<|> "recipes"  :> "list" :> Get '[JSON] [T.Text]
         :<|> "depsolve" :> Capture "package" T.Text :> Get '[JSON] [T.Text]
         :<|> "errtest"  :> Get '[JSON] [T.Text]
+        :<|> "recipes"  :> "list" :> Get '[JSON] RecipesListResponse
+        :<|> "recipes"  :> "info" :> Capture "recipes" T.Text :> Get '[JSON] RecipesInfoResponse
 
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
                        :<|> dbTestH
-                       :<|> listRecipesH
                        :<|> depsolvePkgH
                        :<|> errTestH
+                       :<|> recipesListH
+                       :<|> recipesInfoH
   where
     pkgInfoH package     = liftIO $ packageInfo pool package
     dbTestH              = liftIO $ dbTest pool
-    listRecipesH         = liftIO $ listRecipes repoLock "master"
     depsolvePkgH package = liftIO $ depsolvePkg pool package
     errTestH             = errTest
+    recipesListH         = recipesList repoLock "master"
+    recipesInfoH recipes = recipesInfo repoLock "master" recipes
 
 packageInfo :: ConnectionPool -> T.Text -> IO PackageInfo
 packageInfo pool package = flip runSqlPersistMPool pool $ do
@@ -109,11 +120,6 @@ dbTest pool = flip runSqlPersistMPool pool $ do
     let proj = fromJust mproj
     return (DbTest "fix this")
 
-listRecipes :: GitLock -> T.Text -> IO [T.Text]
-listRecipes repoLock branch = do
-    RWL.withRead (gitRepoLock repoLock) $ do
-        listBranchFiles (gitRepo repoLock) branch
-
 depsolvePkg :: ConnectionPool -> T.Text -> IO [T.Text]
 depsolvePkg pool package = do
     result <- runExceptT $ flip runSqlPool pool $ do
@@ -129,3 +135,152 @@ errTest = throwError myError
   where
     myError :: ServantErr
     myError = createApiError err503 "test_api_error" "This is a test of an API Error Response"
+
+data RecipesListResponse = RecipesListResponse {
+    recipes     :: [T.Text],
+    offset      :: Int,
+    limit       :: Int,
+    total       :: Int
+} deriving (Generic, Show, Eq)
+instance ToJSON RecipesListResponse
+instance FromJSON RecipesListResponse
+
+-- | /api/v0/recipes/list
+-- List the names of the available recipes
+--
+-- >  {
+-- >      "recipes": [
+-- >          "development",
+-- >          "glusterfs",
+-- >          "http-server",
+-- >          "jboss",
+-- >          "kubernetes",
+-- >          "octave",
+-- >      ],
+-- >      "offset": 0,
+-- >      "limit": 20,
+-- >      "total": 6
+-- >  }
+recipesList :: GitLock -> T.Text -> Handler RecipesListResponse
+recipesList repoLock branch = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+    -- TODO Figure out how to catch GitError and throw a ServantErr
+    recipes <- listBranchFiles (gitRepo repoLock) branch
+    return $ RecipesListResponse recipes 0 0 (length recipes)
+  where
+    handleGitErrors :: GitError -> ServantErr
+    handleGitErrors e = createApiError err500 "recipes_list" ("Git Error: " ++ show e)
+
+
+data WorkspaceChanges = WorkspaceChanges {
+    name        :: T.Text,
+    changed     :: Bool
+} deriving (Generic, Show, Eq)
+instance ToJSON WorkspaceChanges
+instance FromJSON WorkspaceChanges
+
+data RecipesInfoResponse = RecipesInfoResponse {
+    changes     :: [WorkspaceChanges],
+    recipes     :: [Recipe]
+} deriving (Generic, Show, Eq)
+instance ToJSON RecipesInfoResponse
+instance FromJSON RecipesInfoResponse
+
+-- | /api/v0/recipes/info/<recipes>
+-- Return the contents of the recipe, or a list of recipes
+--
+-- > {
+-- >     "changes": [
+-- >         {
+-- >             "name": "recipe-test",
+-- >             "changed": true
+-- >         },
+-- >     ],
+-- >     "recipes": [
+-- >         {
+-- >             "name": "http-server",
+-- >             "description": "An example http server with PHP and MySQL support.",
+-- >             "version": "0.0.1",
+-- >             "modules": [
+-- >                 {
+-- >                     "name": "httpd",
+-- >                     "version": "2.4.*"
+-- >                 },
+-- >                 {
+-- >                     "name": "mod_auth_kerb",
+-- >                     "version": "5.4"
+-- >                 },
+-- >                 {
+-- >                     "name": "mod_ssl",
+-- >                     "version": "2.4.*"
+-- >                 },
+-- >                 {
+-- >                     "name": "php",
+-- >                     "version": "5.4.*"
+-- >                 },
+-- >                 {
+-- >                     "name": "php-mysql",
+-- >                     "version": "5.4.*"
+-- >                 }
+-- >             ],
+-- >             "packages": [
+-- >                 {
+-- >                     "name": "tmux",
+-- >                     "version": "2.2"
+-- >                 },
+-- >                 {
+-- >                     "name": "openssh-server",
+-- >                     "version": "6.6.*"
+-- >                 },
+-- >                 {
+-- >                     "name": "rsync",
+-- >                     "version": "3.0.*"
+-- >                 }
+-- >             ]
+-- >         }
+-- >     ],
+-- > }
+-- 
+recipesInfo :: GitLock -> T.Text -> T.Text -> Handler RecipesInfoResponse
+recipesInfo repoLock branch recipes = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+    undefined
+  where
+    noRecipeError :: ServantErr
+    noRecipeError = createApiError err500 "recipes_info" "Missing recipe or list of recipes"
+
+
+-- | * `/api/v0/recipes/freeze/<recipes>`
+-- |  - Return the contents of the recipe with frozen dependencies instead of expressions.
+-- |  - [Example JSON](fn.recipes_freeze.html#examples)
+
+
+
+-- | * `/api/v0/recipes/changes/<recipes>`
+-- |  - Return the commit history of the recipes
+-- |  - [Example JSON](fn.recipes_changes.html#examples)
+-- |  - [Optional filter parameters](../index.html#optional-filter-parameters)
+-- | * `/api/v0/recipes/diff/<recipe>/<from_commit>/<to_commit>`
+-- |  - Return the diff between the two recipe commits. Set to_commit to NEWEST to use the newest commit.
+-- |  - [Example JSON](fn.recipes_diff.html#examples)
+-- | * `/api/v0/recipes/depsolve/<recipes>`
+-- |  - Return the recipe and summary information about all of its modules and packages.
+-- |  - [Example JSON](fn.recipes_depsolve.html#examples)
+-- | * POST `/api/v0/recipes/new`
+-- |  - Create or update a recipe.
+-- |  - The body of the post is a JSON representation of the recipe, using the same format
+-- |    received by `/api/v0/recipes/info/<recipes>`
+-- |  - [Example JSON](fn.recipes_new.html#examples)
+-- | * DELETE `/api/v0/recipes/delete/<recipe>`
+-- |  - Delete the named recipe from the repository
+-- |  - [Example JSON](fn.recipes_delete.html#examples)
+-- | * POST `/api/v0/recipes/undo/<recipe>/<commit>`
+-- |  - Revert a recipe to a previous commit
+-- |  - [Example JSON](fn.recipes_undo.html#examples)
+-- | * POST `/api/v0/recipes/workspace`
+-- |  - Update the temporary recipe workspace
+-- |  - The body of the post is a JSON representation of the recipe, using the same format
+-- |    received by `/api/v0/recipes/info/<recipes>` and `/api/v0/recipes/new`
+-- |  - [Example JSON](fn.recipes_workspace.html#examples)
+-- | * POST `/api/v0/recipes/tag/<recipe>`
+-- |  - Tag the most recent recipe commit as the next revision
+-- |  - [Example](fn.recipes_tag.html)
+

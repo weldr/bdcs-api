@@ -35,26 +35,28 @@ import           Test.Hspec
 getStatus :: ClientM ServerStatus
 getPackage :: T.Text -> ClientM PackageInfo
 getDbTest :: ClientM DbTest
-getRecipes :: ClientM [T.Text]
 getDeps :: T.Text -> ClientM [T.Text]
-getStatus :<|> getPackage :<|> getDbTest :<|> getRecipes :<|> getDeps = client proxyAPI
+getErr :: ClientM [T.Text]
+getRecipes :: ClientM RecipesListResponse
+getRecipesInfo :: T.Text -> ClientM RecipesInfoResponse
+getStatus :<|> getPackage :<|> getDbTest :<|> getDeps :<|> getErr
+          :<|> getRecipes :<|> getRecipesInfo = client proxyAPI
 
 
-{-# ANN module ("HLint: ignore Redundant do Found" :: String) #-}
 spec :: Spec
-spec = do
-    describe "/api" $ do
+spec =
+    describe "/api" $
         withClient (mkApp "/var/tmp/recipes" "/var/tmp/test-bdcs.db") $ do
-            it "API Status" $ \env -> do
+            it "API Status" $ \env ->
                 try env getStatus `shouldReturn` ServerStatus "0.0.0" "0" "0" False
 
-            it "list the available recipes" $ \env -> do
-                try env getRecipes `shouldReturn` ["glusterfs.toml", "http-server.toml", "kubernetes.toml"]
+            it "list the available recipes" $ \env ->
+                try env getRecipes `shouldReturn` RecipesListResponse ["glusterfs.toml", "http-server.toml", "kubernetes.toml"] 0 0 3
 
 withClient :: IO Application -> SpecWith ClientEnv -> SpecWith ()
 withClient x innerSpec =
-    beforeAll (newManager defaultManagerSettings) $ do
-        flip aroundWith innerSpec $ \action -> \manager -> do
+    beforeAll (newManager defaultManagerSettings) $
+        flip aroundWith innerSpec $ \action manager ->
             testWithApplication x $ \port -> do
                 let baseUrl = BaseUrl Http "localhost" port ""
                 action (ClientEnv manager baseUrl)

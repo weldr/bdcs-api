@@ -28,7 +28,7 @@ module BDCS.API.Server(mkApp,
                        ServerStatus(..))
   where
 
-import           BDCS.API.Recipe
+import           BDCS.API.Recipes(openOrCreateRepo, commitRecipeDirectory)
 import           BDCS.API.Utils(GitLock(..))
 import           BDCS.API.V0(V0API, v0ApiServer)
 import           BDCS.DB

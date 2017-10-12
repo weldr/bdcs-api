@@ -19,6 +19,7 @@ cabal-version:          >=1.10
 library
     exposed-modules:    BDCS.API.Error,
                         BDCS.API.Recipe,
+                        BDCS.API.Recipes,
                         BDCS.API.Server,
                         BDCS.API.Utils,
                         BDCS.API.V0,
@@ -33,6 +34,7 @@ library
                         cond,
                         directory,
                         either,
+                        filepath,
                         gi-gio,
                         gi-ggit,
                         gi-glib,
