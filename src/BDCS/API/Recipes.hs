@@ -53,7 +53,7 @@ import           Data.List(elemIndices, isSuffixOf)
 import           Data.Maybe(fromJust, isJust)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import           Data.Text.Encoding(encodeUtf8)
+import           Data.Text.Encoding(decodeUtf8, encodeUtf8)
 import           Data.Word(Word32)
 import           GI.Gio
 import qualified GI.Ggit as Git
@@ -470,11 +470,13 @@ commitRecipeFile repo branch filename = do
 -- | Commit a Recipe record to a branch
 commitRecipe :: Git.Repository -> T.Text -> Recipe -> IO Git.OId
 commitRecipe repo branch recipe = do
+    -- Bump the recipe's version
+    let erecipe = recipeBumpVersion recipe Nothing
+    -- XXX Handle errors
+    let recipe = head $ rights [erecipe]
+    let version = fromJust (rVersion recipe)
     let toml_out = encodeUtf8 $ recipeTOML recipe
     let filename = recipeTomlFilename (rName recipe)
-    let eversion = bumpVersion Nothing (rVersion recipe)
-    -- XXX Handle errors
-    let version = head $ rights [eversion]
     let message = T.pack $ printf "Recipe %s, version %s saved" filename version
     writeCommit repo branch filename message toml_out
 
@@ -488,6 +490,12 @@ commitRecipeDirectory repo branch directory = do
   where
     skipFiles :: [T.Text] -> String -> Bool
     skipFiles branch_files file = T.pack file `notElem` branch_files && ".toml" `isSuffixOf` file
+
+-- | Read a Recipe from a commit
+readRecipeCommit :: Git.Repository -> T.Text -> T.Text -> Maybe T.Text -> IO (Either String Recipe)
+readRecipeCommit repo branch filename commit = do
+    recipe_toml <- readCommit repo branch filename commit
+    return $ parseRecipe (decodeUtf8 recipe_toml)
 
 printOId :: Git.OId -> IO ()
 printOId oid =
@@ -554,6 +562,12 @@ testGitRepo tmpdir = do
     putStrLn "    - Committing a Recipe record"
     commitRecipe repo "master" testRecipe
 
+    -- Check that the testRecipe's version was bumped
+    putStrLn "    - Checking Recipe Version"
+    erecipe <- readRecipeCommit repo "master" "test-server.toml" Nothing
+    let recipe = head $ rights [erecipe]
+    unless (testRecipe { rVersion = Just "0.1.3"} == recipe) (throwIO $ RecipeMismatchError [testRecipe, recipe])
+
     -- List the files on master
     putStrLn "    - Listing the committed files"
     files <- listBranchFiles repo "master"
@@ -563,7 +577,7 @@ testGitRepo tmpdir = do
     putStrLn "    - List commits to http-server.toml"
     http_commits <- listCommits repo "master" "http-server.toml"
     -- Should be 1 commit
-    let expected_msg_1 = "Recipe http-server.toml, version 0.2.0 saved"
+    let expected_msg_1 = "Recipe http-server.toml, version 0.2.1 saved"
     let msg_1 = cdMessage (head http_commits)
     unless (msg_1 == expected_msg_1) (throwIO $ HttpCommitError http_commits)
 
