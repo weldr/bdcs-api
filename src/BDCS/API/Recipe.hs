@@ -59,7 +59,7 @@ instance ToJSON Recipe where
       , "version"     .= fromMaybe "" rVersion
       , "description" .= rDescription
       , "packages"    .= rPackages
-      , "rModules"    .= rModules ]
+      , "modules"    .= rModules ]
 
 
 data RecipeModule =
