@@ -17,7 +17,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
-module BDCS.API.Recipe(parseRecipe,
+module BDCS.API.Recipe(bumpVersion,
+                       parseRecipe,
                        recipeTOML,
                        recipeTomlFilename,
                        recipeBumpVersion,
@@ -116,19 +117,19 @@ recipeTomlFilename name = T.append (T.replace " " "-" (T.pack name)) ".toml"
 -- If there is no new version, but there is a previous one, bump its patch level
 -- If the previous and new versions are the same, bump the patch level
 -- If they are different, check and return the new version
-recipeBumpVersion :: Maybe String -> Maybe String -> Either String String
-recipeBumpVersion Nothing Nothing = Right "0.0.1"
+bumpVersion :: Maybe String -> Maybe String -> Either String String
+bumpVersion Nothing Nothing = Right "0.0.1"
 -- Only a new version, make sure the new version can be parsed
-recipeBumpVersion Nothing (Just new_ver) =
+bumpVersion Nothing (Just new_ver) =
     case SV.fromText (T.pack new_ver) of
         Right _ -> Right new_ver
         Left  _ -> Left ("Failed to parse version: " ++ new_ver)
 -- If there was a previous version and no new one, bump the patch level
-recipeBumpVersion (Just prev_ver) Nothing =
+bumpVersion (Just prev_ver) Nothing =
     case SV.fromText (T.pack prev_ver) of
         Right version -> Right $ SV.toString $ SV.incrementPatch version
         Left _        -> Left ("Failed to parse version: " ++ prev_ver)
-recipeBumpVersion (Just prev_ver) (Just new_ver)
+bumpVersion (Just prev_ver) (Just new_ver)
     | prev_ver == new_ver = bumpNewVer
     | otherwise           = checkNewVer
   where
@@ -140,3 +141,9 @@ recipeBumpVersion (Just prev_ver) (Just new_ver)
         case SV.fromText (T.pack new_ver) of
             Right _ -> Right new_ver
             Left  _ -> Left ("Failed to parse version: " ++ new_ver)
+
+-- | Bump or replace a Recipe Version with a new one
+recipeBumpVersion :: Recipe -> Maybe String -> Either String Recipe
+recipeBumpVersion recipe new_version = case bumpVersion (rVersion recipe) new_version of
+    Right version -> Right recipe { rVersion = Just version }
+    Left  err     -> Left  err

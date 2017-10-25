@@ -472,7 +472,7 @@ commitRecipe :: Git.Repository -> T.Text -> Recipe -> IO Git.OId
 commitRecipe repo branch recipe = do
     let toml_out = encodeUtf8 $ recipeTOML recipe
     let filename = recipeTomlFilename (rName recipe)
-    let eversion = recipeBumpVersion Nothing (rVersion recipe)
+    let eversion = bumpVersion Nothing (rVersion recipe)
     -- XXX Handle errors
     let version = head $ rights [eversion]
     let message = T.pack $ printf "Recipe %s, version %s saved" filename version
