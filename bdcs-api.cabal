@@ -78,12 +78,15 @@ test-suite spec
   hs-source-dirs:       tests
   ghc-options:          -Wall
   build-depends:        base,
+                        aeson,
                         bdcs-api,
+                        bytestring,
                         hspec,
                         http-client,
                         http-types,
                         servant-client,
                         servant-server,
+                        string-qq,
                         text,
                         wai,
                         warp
