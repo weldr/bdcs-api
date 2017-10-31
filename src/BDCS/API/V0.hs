@@ -48,7 +48,7 @@ import           Control.Monad.Except
 import           Control.Monad.Logger(runStderrLoggingT)
 import           Control.Monad.Reader
 import           Data.Aeson
-import           Data.List(intercalate)
+import           Data.List(intercalate, sortBy)
 import           Data.Maybe(fromJust, listToMaybe)
 import           Data.String.Conversions(cs)
 import qualified Data.Text as T
@@ -164,9 +164,11 @@ instance FromJSON RecipesListResponse
 recipesList :: GitLock -> T.Text -> Handler RecipesListResponse
 recipesList repoLock branch = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     -- TODO Figure out how to catch GitError and throw a ServantErr
-    recipes <- listBranchFiles (gitRepo repoLock) branch
+    filenames <- listBranchFiles (gitRepo repoLock) branch
+    let recipes = sortBy caseInsensitive $ map (T.dropEnd 5) filenames
     return $ RecipesListResponse recipes 0 0 (length recipes)
   where
+    caseInsensitive a b = T.toCaseFold a `compare` T.toCaseFold b
     handleGitErrors :: GitError -> ServantErr
     handleGitErrors e = createApiError err500 "recipes_list" ("Git Error: " ++ show e)
 

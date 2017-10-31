@@ -38,7 +38,7 @@ getDbTest :: ClientM DbTest
 getDeps :: T.Text -> ClientM [T.Text]
 getErr :: ClientM [T.Text]
 getRecipes :: ClientM RecipesListResponse
-getRecipesInfo :: T.Text -> ClientM RecipesInfoResponse
+getRecipesInfo :: String -> ClientM RecipesInfoResponse
 getStatus :<|> getPackage :<|> getDbTest :<|> getDeps :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo = client proxyAPI
 
@@ -51,7 +51,7 @@ spec =
                 try env getStatus `shouldReturn` ServerStatus "0.0.0" "0" "0" False
 
             it "list the available recipes" $ \env ->
-                try env getRecipes `shouldReturn` RecipesListResponse ["glusterfs.toml", "http-server.toml", "kubernetes.toml"] 0 0 3
+                try env getRecipes `shouldReturn` RecipesListResponse ["glusterfs", "http-server", "kubernetes"] 0 0 3
 
 withClient :: IO Application -> SpecWith ClientEnv -> SpecWith ()
 withClient x innerSpec =
