@@ -137,6 +137,8 @@ spec =
             bumpVersion (Just "AAA")   (Just "BBB")   `shouldBe` Left "Failed to parse version: BBB"
 
         it "Bump the version of a Recipe and return a new Recipe" $ do
-            recipeBumpVersion test1Recipe Nothing        `shouldBe` Right test1Recipe { rVersion = Just "0.1.3" }
+            recipeBumpVersion test1Recipe Nothing        `shouldBe` Right test1Recipe { rVersion = Just "0.1.2" }
             recipeBumpVersion test1Recipe (Just "0.1.2") `shouldBe` Right test1Recipe { rVersion = Just "0.1.3" }
-            recipeBumpVersion test1Recipe (Just "0.2.1") `shouldBe` Right test1Recipe { rVersion = Just "0.2.1" }
+            recipeBumpVersion test1Recipe (Just "0.2.1") `shouldBe` Right test1Recipe { rVersion = Just "0.1.2" }
+            let test2Recipe = test1Recipe {rVersion = Just "0.3.1"}
+            recipeBumpVersion test2Recipe (Just "0.1.2") `shouldBe` Right test2Recipe

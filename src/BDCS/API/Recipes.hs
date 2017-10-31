@@ -177,6 +177,7 @@ getBranchOIdFromObject repo branch_obj = do
 -- | Make a new commit to a repository's branch
 writeCommit :: Git.Repository -> T.Text -> T.Text -> T.Text -> BS.ByteString -> IO Git.OId
 writeCommit repo branch filename message content = do
+    -- TODO Create the branch if it doesn't already exist (using findOrCreateBranch)
     parent_commit <- headCommit repo branch
     blob_id <- Git.repositoryCreateBlobFromBuffer repo content >>= maybeThrow CreateBlobError
 
@@ -468,10 +469,14 @@ commitRecipeFile repo branch filename = do
     commitRecipe repo branch recipe
 
 -- | Commit a Recipe record to a branch
+--
+-- If there is already an existing recipe this will bump or replace the
+-- version number depending on what the new recipe contains.
 commitRecipe :: Git.Repository -> T.Text -> Recipe -> IO Git.OId
 commitRecipe repo branch recipe = do
+    old_version <- getOldVersion repo branch (recipeTomlFilename $ rName recipe)
     -- Bump the recipe's version
-    let erecipe = recipeBumpVersion recipe Nothing
+    let erecipe = recipeBumpVersion recipe old_version
     -- XXX Handle errors
     let recipe = head $ rights [erecipe]
     let version = fromJust (rVersion recipe)
@@ -479,6 +484,13 @@ commitRecipe repo branch recipe = do
     let filename = recipeTomlFilename (rName recipe)
     let message = T.pack $ printf "Recipe %s, version %s saved" filename version
     writeCommit repo branch filename message toml_out
+  where
+    getOldVersion :: Git.Repository -> T.Text -> T.Text -> IO (Maybe String)
+    getOldVersion repo branch filename = do
+        eold_recipe <- readRecipeCommit repo branch filename Nothing
+        case eold_recipe of
+            Left  _          -> return Nothing
+            Right old_recipe -> return $ rVersion old_recipe
 
 -- | Commit recipes from a directory, if they don't already exist
 --
@@ -494,8 +506,13 @@ commitRecipeDirectory repo branch directory = do
 -- | Read a Recipe from a commit
 readRecipeCommit :: Git.Repository -> T.Text -> T.Text -> Maybe T.Text -> IO (Either String Recipe)
 readRecipeCommit repo branch filename commit = do
-    recipe_toml <- readCommit repo branch filename commit
-    return $ parseRecipe (decodeUtf8 recipe_toml)
+    -- Is this file in the branch?
+    branch_files <- listBranchFiles repo branch
+    if filename `notElem` branch_files
+        then return $ Left (printf "%s is not present on branch %s" filename branch)
+        else do
+            recipe_toml <- readCommit repo branch filename commit
+            return $ parseRecipe (decodeUtf8 recipe_toml)
 
 printOId :: Git.OId -> IO ()
 printOId oid =
@@ -562,11 +579,34 @@ testGitRepo tmpdir = do
     putStrLn "    - Committing a Recipe record"
     commitRecipe repo "master" testRecipe
 
-    -- Check that the testRecipe's version was bumped
+    -- Check that the testRecipe's version was not bumped on 1st save
     putStrLn "    - Checking Recipe Version"
     erecipe <- readRecipeCommit repo "master" "test-server.toml" Nothing
     let recipe = head $ rights [erecipe]
-    unless (testRecipe { rVersion = Just "0.1.3"} == recipe) (throwIO $ RecipeMismatchError [testRecipe, recipe])
+    unless (testRecipe == recipe) (throwIO $ RecipeMismatchError [testRecipe, recipe])
+
+    -- Check that saving a changed recipe, with the same version, bumps it.
+    let new_recipe1      = testRecipe { rDescription = "Second commit with same version, should bump" }
+    putStrLn "    - Committing a Recipe record with changed description"
+    commitRecipe repo "master" new_recipe1
+
+    -- Check that the version was bumped on the 2nd save
+    putStrLn "    - Checking Modified Recipe's Version"
+    erecipe <- readRecipeCommit repo "master" "test-server.toml" Nothing
+    let recipe = head $ rights [erecipe]
+    unless (new_recipe1 {rVersion = Just "0.1.3"} == recipe) (throwIO $ RecipeMismatchError [new_recipe1, recipe])
+
+    -- Check that saving a changed recipe, with a completely different version, uses it without bumping.
+    let new_recipe2 = testRecipe {rDescription = "Third commit with new version, should just use it",
+                                  rVersion = Just "0.3.1"}
+    putStrLn "    - Committing a Recipe record with changed description and different version"
+    commitRecipe repo "master" new_recipe2
+
+    -- Check that the version was used as-is
+    putStrLn "    - Checking Modified Recipe's Version"
+    erecipe <- readRecipeCommit repo "master" "test-server.toml" Nothing
+    let recipe = head $ rights [erecipe]
+    unless (new_recipe2 == recipe) (throwIO $ RecipeMismatchError [new_recipe2, recipe])
 
     -- List the files on master
     putStrLn "    - Listing the committed files"
@@ -577,7 +617,7 @@ testGitRepo tmpdir = do
     putStrLn "    - List commits to http-server.toml"
     http_commits <- listCommits repo "master" "http-server.toml"
     -- Should be 1 commit
-    let expected_msg_1 = "Recipe http-server.toml, version 0.2.1 saved"
+    let expected_msg_1 = "Recipe http-server.toml, version 0.2.0 saved"
     let msg_1 = cdMessage (head http_commits)
     unless (msg_1 == expected_msg_1) (throwIO $ HttpCommitError http_commits)
 

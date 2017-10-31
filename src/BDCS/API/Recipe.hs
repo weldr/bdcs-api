@@ -143,7 +143,10 @@ bumpVersion (Just prev_ver) (Just new_ver)
             Left  _ -> Left ("Failed to parse version: " ++ new_ver)
 
 -- | Bump or replace a Recipe Version with a new one
+--
+-- Pass the new recipe and the version from the previous recipe
+-- Returns a new recipe with the correct version
 recipeBumpVersion :: Recipe -> Maybe String -> Either String Recipe
-recipeBumpVersion recipe new_version = case bumpVersion (rVersion recipe) new_version of
+recipeBumpVersion recipe prev_version = case bumpVersion prev_version (rVersion recipe) of
     Right version -> Right recipe { rVersion = Just version }
     Left  err     -> Left  err
