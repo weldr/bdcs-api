@@ -38,6 +38,7 @@ library
                         gi-gio,
                         gi-ggit,
                         gi-glib,
+                        haskell-gi-base,
                         http-types,
                         htoml,
                         memory < 0.14.6,

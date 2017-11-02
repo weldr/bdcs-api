@@ -35,7 +35,8 @@ module BDCS.API.V0(DbTest(..),
 import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
-import           BDCS.API.Utils(GitLock(..))
+import           BDCS.API.Utils(GitLock(..), argify)
+import           BDCS.API.Workspace
 import           BDCS.DB
 import           BDCS.Depclose(depclose)
 import           BDCS.Depsolve(formulaToCNF, solveCNF)
@@ -57,6 +58,7 @@ import           Database.Persist
 import           Database.Persist.Sql
 import           Database.Persist.Sqlite
 import           GHC.Generics
+import           Data.GI.Base(GError(..), gerrorMessage)
 import           Network.Wai
 import           Network.Wai.Handler.Warp
 import           Network.Wai.Middleware.Cors
@@ -81,12 +83,21 @@ data PackageInfo = PackageInfo
 instance ToJSON PackageInfo
 instance FromJSON PackageInfo
 
+-- | RecipesAPIError is used to report errors with the /recipes/ routes
+data RecipesAPIError = RecipesAPIError
+  {  recipe     :: T.Text,
+     msg        :: T.Text
+  } deriving (Generic, Eq, Show)
+
+instance ToJSON RecipesAPIError
+instance FromJSON RecipesAPIError
+
 type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
         :<|> "dbtest"   :> Get '[JSON] DbTest
         :<|> "depsolve" :> Capture "package" T.Text :> Get '[JSON] [T.Text]
         :<|> "errtest"  :> Get '[JSON] [T.Text]
         :<|> "recipes"  :> "list" :> Get '[JSON] RecipesListResponse
-        :<|> "recipes"  :> "info" :> Capture "recipes" T.Text :> Get '[JSON] RecipesInfoResponse
+        :<|> "recipes"  :> "info" :> Capture "recipes" String :> Get '[JSON] RecipesInfoResponse
 
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
@@ -182,13 +193,17 @@ instance FromJSON WorkspaceChanges
 
 data RecipesInfoResponse = RecipesInfoResponse {
     changes     :: [WorkspaceChanges],
-    recipes     :: [Recipe]
+    recipes     :: [Recipe],
+    errors      :: [RecipesAPIError]
 } deriving (Generic, Show, Eq)
 instance ToJSON RecipesInfoResponse
 instance FromJSON RecipesInfoResponse
 
 -- | /api/v0/recipes/info/<recipes>
 -- Return the contents of the recipe, or a list of recipes
+--
+-- The 'errors' list may be empty, or may include recipe-specific errors if
+-- there was a problem retrieving it.
 --
 -- > {
 -- >     "changes": [
@@ -238,16 +253,70 @@ instance FromJSON RecipesInfoResponse
 -- >                     "version": "3.0.*"
 -- >                 }
 -- >             ]
+-- >         },
+-- >     "errors": [
+-- >         {
+-- >             "recipe": "a-missing-recipe",
+-- >             "msg": "Error retrieving a-missing-recipe"
 -- >         }
--- >     ],
+-- >     ]
 -- > }
--- 
-recipesInfo :: GitLock -> T.Text -> T.Text -> Handler RecipesInfoResponse
-recipesInfo repoLock branch recipes = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
-    undefined
+--
+recipesInfo :: GitLock -> T.Text -> String -> Handler RecipesInfoResponse
+recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+    let recipe_name_list = map T.pack (argify [recipe_names])
+    (changes, recipes, errors) <- allRecipeInfo recipe_name_list [] [] []
+    return $ RecipesInfoResponse changes recipes errors
   where
-    noRecipeError :: ServantErr
-    noRecipeError = createApiError err500 "recipes_info" "Missing recipe or list of recipes"
+    allRecipeInfo [] _ _ _ = return ([], [], [])
+    allRecipeInfo [recipe_name] changes_list recipes_list errors_list =
+                  oneRecipeInfo recipe_name changes_list recipes_list errors_list
+    allRecipeInfo (recipe_name:xs) changes_list recipes_list errors_list = do
+                  (new_changes, new_recipes, new_errors) <- oneRecipeInfo recipe_name changes_list recipes_list errors_list
+                  allRecipeInfo xs new_changes new_recipes new_errors
+
+    oneRecipeInfo recipe_name changes_list recipes_list errors_list = do
+        result <- getRecipeInfo recipe_name
+        return (new_changes result, new_recipes result, new_errors result)
+      where
+        new_errors result = case result of
+            Left  err    -> RecipesAPIError recipe_name (T.pack err):errors_list
+            Right (_, _) -> errors_list
+
+        new_changes result = case result of
+            Left  _            -> changes_list
+            Right (changed, _) -> WorkspaceChanges recipe_name changed:changes_list
+
+        new_recipes result = case result of
+            Left  _           -> recipes_list
+            Right (_, recipe) -> recipe:recipes_list
+
+    -- Get the recipe from the workspace or from git
+    getRecipeInfo :: T.Text -> IO (Either String (Bool, Recipe))
+    getRecipeInfo recipe_name = do
+        --   read the workspace recipe if it exists, errors are mapped to Nothing
+        ws_recipe <- catch_ws_recipe recipe_name
+        --   read the git recipe (if it exists), Errors are mapped to Left
+        git_recipe <- catch_git_recipe recipe_name
+
+        case (ws_recipe, git_recipe) of
+            (Nothing,     Left e)       -> return $ Left e
+            (Just recipe, Left _)       -> return $ Right (True, recipe)
+            (Nothing,     Right recipe) -> return $ Right (False, recipe)
+            (Just ws_r,   Right git_r)  -> return $ Right (ws_r == git_r, ws_r)
+
+    -- | Read the recipe from the workspace, and convert WorkspaceErrors into Nothing
+    catch_ws_recipe :: T.Text -> IO (Maybe Recipe)
+    catch_ws_recipe recipe_name =
+        CE.catch (workspaceRead (gitRepo repoLock) branch recipe_name)
+                 (\(_ :: WorkspaceError) -> return Nothing)
+
+    -- | Read the recipe from git, and convert errors into Left descriptions of what went wrong.
+    catch_git_recipe :: T.Text -> IO (Either String Recipe)
+    catch_git_recipe recipe_name =
+        CE.catches (readRecipeCommit (gitRepo repoLock) branch recipe_name Nothing)
+                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
+                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
 -- | * `/api/v0/recipes/freeze/<recipes>`
