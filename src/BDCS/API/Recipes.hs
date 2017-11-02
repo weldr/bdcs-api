@@ -35,6 +35,7 @@ module BDCS.API.Recipes(openOrCreateRepo,
                         commitRecipeFile,
                         commitRecipe,
                         commitRecipeDirectory,
+                        readRecipeCommit,
                         runGitRepoTests,
                         runWorkspaceTests,
                         GitError(..))
@@ -474,7 +475,7 @@ commitRecipeFile repo branch filename = do
 -- version number depending on what the new recipe contains.
 commitRecipe :: Git.Repository -> T.Text -> Recipe -> IO Git.OId
 commitRecipe repo branch recipe = do
-    old_version <- getOldVersion repo branch (recipeTomlFilename $ rName recipe)
+    old_version <- getOldVersion repo branch (T.pack $ rName recipe)
     -- Bump the recipe's version
     let erecipe = recipeBumpVersion recipe old_version
     -- XXX Handle errors
@@ -486,8 +487,8 @@ commitRecipe repo branch recipe = do
     writeCommit repo branch filename message toml_out
   where
     getOldVersion :: Git.Repository -> T.Text -> T.Text -> IO (Maybe String)
-    getOldVersion repo branch filename = do
-        eold_recipe <- readRecipeCommit repo branch filename Nothing
+    getOldVersion repo branch recipe_name = do
+        eold_recipe <- readRecipeCommit repo branch recipe_name Nothing
         case eold_recipe of
             Left  _          -> return Nothing
             Right old_recipe -> return $ rVersion old_recipe
@@ -505,9 +506,10 @@ commitRecipeDirectory repo branch directory = do
 
 -- | Read a Recipe from a commit
 readRecipeCommit :: Git.Repository -> T.Text -> T.Text -> Maybe T.Text -> IO (Either String Recipe)
-readRecipeCommit repo branch filename commit = do
+readRecipeCommit repo branch recipe_name commit = do
     -- Is this file in the branch?
     branch_files <- listBranchFiles repo branch
+    let filename = recipeTomlFilename $ T.unpack recipe_name
     if filename `notElem` branch_files
         then return $ Left (printf "%s is not present on branch %s" filename branch)
         else do
@@ -581,7 +583,7 @@ testGitRepo tmpdir = do
 
     -- Check that the testRecipe's version was not bumped on 1st save
     putStrLn "    - Checking Recipe Version"
-    erecipe <- readRecipeCommit repo "master" "test-server.toml" Nothing
+    erecipe <- readRecipeCommit repo "master" "test-server" Nothing
     let recipe = head $ rights [erecipe]
     unless (testRecipe == recipe) (throwIO $ RecipeMismatchError [testRecipe, recipe])
 
@@ -592,7 +594,7 @@ testGitRepo tmpdir = do
 
     -- Check that the version was bumped on the 2nd save
     putStrLn "    - Checking Modified Recipe's Version"
-    erecipe <- readRecipeCommit repo "master" "test-server.toml" Nothing
+    erecipe <- readRecipeCommit repo "master" "test-server" Nothing
     let recipe = head $ rights [erecipe]
     unless (new_recipe1 {rVersion = Just "0.1.3"} == recipe) (throwIO $ RecipeMismatchError [new_recipe1, recipe])
 
@@ -604,7 +606,7 @@ testGitRepo tmpdir = do
 
     -- Check that the version was used as-is
     putStrLn "    - Checking Modified Recipe's Version"
-    erecipe <- readRecipeCommit repo "master" "test-server.toml" Nothing
+    erecipe <- readRecipeCommit repo "master" "test-server" Nothing
     let recipe = head $ rights [erecipe]
     unless (new_recipe2 == recipe) (throwIO $ RecipeMismatchError [new_recipe2, recipe])
 
