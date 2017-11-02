@@ -19,7 +19,8 @@
 module BDCS.API.Workspace(workspaceRead,
                           workspaceWrite,
                           workspaceDelete,
-                          workspaceDir)
+                          workspaceDir,
+                          WorkspaceError(..))
   where
 
 import           BDCS.API.Recipe(Recipe(..), RecipeModule(..), parseRecipe, recipeTOML, recipeTomlFilename)
