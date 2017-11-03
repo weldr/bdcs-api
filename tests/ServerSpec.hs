@@ -19,6 +19,7 @@
 module ServerSpec
   where
 
+import           BDCS.API.Recipe(Recipe(..), RecipeModule(..))
 import           BDCS.API.Server
 import           BDCS.API.V0
 import           Control.Exception (throwIO)
@@ -43,6 +44,69 @@ getStatus :<|> getPackage :<|> getDbTest :<|> getDeps :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo = client proxyAPI
 
 
+-- Test results, depends on the contents of the ./tests/recipes files.
+recipesListResponse :: RecipesListResponse
+recipesListResponse = RecipesListResponse ["glusterfs", "http-server", "kubernetes"] 0 0 3
+
+missingRecipeResponse :: RecipesInfoResponse
+missingRecipeResponse = RecipesInfoResponse [] [] [RecipesAPIError "missing-recipe" "missing-recipe.toml is not present on branch master"]
+
+httpserverRecipeResponse :: RecipesInfoResponse
+httpserverRecipeResponse =
+    RecipesInfoResponse [WorkspaceChanges "http-server" False]
+                        [Recipe "http-server" (Just "0.2.0") "An example http server with PHP and MySQL support."
+                          [RecipeModule "tmux" "2.2",
+                           RecipeModule "openssh-server" "6.6.*",
+                           RecipeModule "rsync" "3.0.*"]
+                          [RecipeModule "httpd" "2.4.*",
+                           RecipeModule "mod_auth_kerb" "5.4",
+                           RecipeModule "mod_ssl" "2.4.*",
+                           RecipeModule "php" "5.4.*",
+                           RecipeModule "php-mysql" "5.4.*"]
+                        ]
+                        []
+
+multipleRecipeResponse :: RecipesInfoResponse
+multipleRecipeResponse =
+    RecipesInfoResponse [WorkspaceChanges "glusterfs" False,
+                         WorkspaceChanges "http-server" False]
+                        [Recipe "glusterfs" (Just "0.0.1") "An example GlusterFS server with samba"
+                          [RecipeModule "samba" "4.2.*"]
+                          [RecipeModule "glusterfs" "3.7.*",
+                           RecipeModule "glusterfs-cli" "3.7.*"],
+                         Recipe "http-server" (Just "0.2.0") "An example http server with PHP and MySQL support."
+                          [RecipeModule "tmux" "2.2",
+                           RecipeModule "openssh-server" "6.6.*",
+                           RecipeModule "rsync" "3.0.*"]
+                          [RecipeModule "httpd" "2.4.*",
+                           RecipeModule "mod_auth_kerb" "5.4",
+                           RecipeModule "mod_ssl" "2.4.*",
+                           RecipeModule "php" "5.4.*",
+                           RecipeModule "php-mysql" "5.4.*"]
+                        ]
+                        []
+
+errorRecipeResponse :: RecipesInfoResponse
+errorRecipeResponse =
+    RecipesInfoResponse [WorkspaceChanges "glusterfs" False,
+                         WorkspaceChanges "http-server" False]
+                        [Recipe "glusterfs" (Just "0.0.1") "An example GlusterFS server with samba"
+                          [RecipeModule "samba" "4.2.*"]
+                          [RecipeModule "glusterfs" "3.7.*",
+                           RecipeModule "glusterfs-cli" "3.7.*"],
+                         Recipe "http-server" (Just "0.2.0") "An example http server with PHP and MySQL support."
+                          [RecipeModule "tmux" "2.2",
+                           RecipeModule "openssh-server" "6.6.*",
+                           RecipeModule "rsync" "3.0.*"]
+                          [RecipeModule "httpd" "2.4.*",
+                           RecipeModule "mod_auth_kerb" "5.4",
+                           RecipeModule "mod_ssl" "2.4.*",
+                           RecipeModule "php" "5.4.*",
+                           RecipeModule "php-mysql" "5.4.*"]
+                        ]
+                        [RecipesAPIError "missing-recipe" "missing-recipe.toml is not present on branch master"]
+
+
 spec :: Spec
 spec =
     describe "/api" $
@@ -51,7 +115,19 @@ spec =
                 try env getStatus `shouldReturn` ServerStatus "0.0.0" "0" "0" False
 
             it "list the available recipes" $ \env ->
-                try env getRecipes `shouldReturn` RecipesListResponse ["glusterfs", "http-server", "kubernetes"] 0 0 3
+                try env getRecipes `shouldReturn` recipesListResponse
+
+            it "Get a non-existant recipe's info" $ \env ->
+                try env (getRecipesInfo "missing-recipe")  `shouldReturn` missingRecipeResponse
+
+            it "Get the http-server recipe's info" $ \env ->
+                try env (getRecipesInfo "http-server")  `shouldReturn` httpserverRecipeResponse
+
+            it "Get multiple recipe's info" $ \env ->
+                try env (getRecipesInfo "http-server,glusterfs")  `shouldReturn` multipleRecipeResponse
+
+            it "Get http-server recipe and missing-recipe info" $ \env ->
+                try env (getRecipesInfo "http-server,missing-recipe,glusterfs")  `shouldReturn` errorRecipeResponse
 
 withClient :: IO Application -> SpecWith ClientEnv -> SpecWith ()
 withClient x innerSpec =

@@ -28,6 +28,8 @@ module BDCS.API.V0(DbTest(..),
                    PackageInfo(..),
                    RecipesListResponse(..),
                    RecipesInfoResponse(..),
+                   RecipesAPIError(..),
+                   WorkspaceChanges(..),
                    V0API,
                    v0ApiServer)
   where
