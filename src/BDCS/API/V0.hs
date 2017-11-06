@@ -488,11 +488,10 @@ instance FromJSON RecipesChangesResponse where
 recipesChanges :: GitLock -> T.Text -> String -> Maybe Int -> Maybe Int -> Handler RecipesChangesResponse
 recipesChanges repoLock branch recipe_names moffset mlimit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     let recipe_name_list = map T.pack (argify [recipe_names])
-    let offset = fromMaybe 0 moffset
-    let limit  = fromMaybe 20 mlimit
     (changes, errors) <- allRecipeChanges recipe_name_list [] []
     return $ RecipesChangesResponse changes errors offset limit
   where
+    allRecipeChanges :: [T.Text] -> [RecipeChanges] -> [RecipesAPIError] -> IO ([RecipeChanges], [RecipesAPIError])
     allRecipeChanges [] _ _ = return ([], [])
     allRecipeChanges [recipe_name] changes_list errors_list =
                      oneRecipeChange recipe_name changes_list errors_list
@@ -500,17 +499,29 @@ recipesChanges repoLock branch recipe_names moffset mlimit = liftIO $ RWL.withRe
                      (new_changes, new_errors) <- oneRecipeChange recipe_name changes_list errors_list
                      allRecipeChanges xs new_changes new_errors
 
+    oneRecipeChange :: T.Text -> [RecipeChanges] -> [RecipesAPIError] -> IO ([RecipeChanges], [RecipesAPIError])
     oneRecipeChange recipe_name changes_list errors_list = do
         result <- catch_recipe_changes recipe_name
         return (new_changes result, new_errors result)
       where
+        new_changes :: Either String [CommitDetails] -> [RecipeChanges]
         new_changes result = case result of
             Left  _       -> changes_list
-            Right changes -> RecipeChanges recipe_name changes (length changes):changes_list
+            Right changes -> RecipeChanges recipe_name (apply_limits changes) (length $ apply_limits changes):changes_list
 
+        new_errors :: Either String [CommitDetails] -> [RecipesAPIError]
         new_errors result = case result of
             Left  err -> RecipesAPIError recipe_name (T.pack err):errors_list
             Right _   -> errors_list
+
+    offset :: Int
+    offset = fromMaybe 0 moffset
+
+    limit :: Int
+    limit  = fromMaybe 20 mlimit
+
+    apply_limits :: [a] -> [a]
+    apply_limits l = take limit $ drop offset l
 
     catch_recipe_changes :: T.Text -> IO (Either String [CommitDetails])
     catch_recipe_changes recipe_name =
