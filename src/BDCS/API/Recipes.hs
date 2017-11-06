@@ -28,6 +28,7 @@ module BDCS.API.Recipes(openOrCreateRepo,
                         deleteFile,
                         revertFile,
                         revertFileCommit,
+                        listRecipeCommits,
                         listCommits,
                         findCommitTag,
                         getRevisionFromTag,
@@ -38,6 +39,7 @@ module BDCS.API.Recipes(openOrCreateRepo,
                         readRecipeCommit,
                         runGitRepoTests,
                         runWorkspaceTests,
+                        CommitDetails(..),
                         GitError(..))
   where
 
@@ -288,6 +290,9 @@ data CommitDetails =
                   , cdMessage   :: T.Text
                   , cdRevision  :: Maybe Int
     } deriving (Show, Eq)
+
+listRecipeCommits :: Git.Repository -> T.Text -> T.Text -> IO [CommitDetails]
+listRecipeCommits repo branch recipe_name = listCommits repo branch (recipeTomlFilename $ T.unpack recipe_name)
 
 listCommits :: Git.Repository -> T.Text -> T.Text -> IO [CommitDetails]
 listCommits repo branch filename = do
