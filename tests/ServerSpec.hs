@@ -35,12 +35,11 @@ import           Test.Hspec
 -- Client API
 getStatus :: ClientM ServerStatus
 getPackage :: T.Text -> ClientM PackageInfo
-getDbTest :: ClientM DbTest
 getDeps :: T.Text -> ClientM [T.Text]
 getErr :: ClientM [T.Text]
 getRecipes :: ClientM RecipesListResponse
 getRecipesInfo :: String -> ClientM RecipesInfoResponse
-getStatus :<|> getPackage :<|> getDbTest :<|> getDeps :<|> getErr
+getStatus :<|> getPackage :<|> getDeps :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo = client proxyAPI
 
 

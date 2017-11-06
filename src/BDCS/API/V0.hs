@@ -24,8 +24,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
-module BDCS.API.V0(DbTest(..),
-                   PackageInfo(..),
+module BDCS.API.V0(PackageInfo(..),
                    RecipesListResponse(..),
                    RecipesInfoResponse(..),
                    RecipesChangesResponse(..),
@@ -72,13 +71,6 @@ import           Servant
 
 {-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
 
-data DbTest = DbTest
-  {  dbStuff :: String
-  } deriving (Generic, Eq, Show)
-
-instance ToJSON DbTest
-instance FromJSON DbTest
-
 data PackageInfo = PackageInfo
   {  name    :: T.Text
   ,  summary :: T.Text
@@ -97,7 +89,6 @@ instance ToJSON RecipesAPIError
 instance FromJSON RecipesAPIError
 
 type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
-        :<|> "dbtest"   :> Get '[JSON] DbTest
         :<|> "depsolve" :> Capture "package" T.Text :> Get '[JSON] [T.Text]
         :<|> "errtest"  :> Get '[JSON] [T.Text]
         :<|> "recipes"  :> "list" :> Get '[JSON] RecipesListResponse
@@ -108,7 +99,6 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
 
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
-                       :<|> dbTestH
                        :<|> depsolvePkgH
                        :<|> errTestH
                        :<|> recipesListH
@@ -116,7 +106,6 @@ v0ApiServer repoLock pool = pkgInfoH
                        :<|> recipesChangesH
   where
     pkgInfoH package     = liftIO $ packageInfo pool package
-    dbTestH              = liftIO $ dbTest pool
     depsolvePkgH package = liftIO $ depsolvePkg pool package
     errTestH             = errTest
     recipesListH         = recipesList repoLock "master"
@@ -133,12 +122,6 @@ packageInfo pool package = flip runSqlPersistMPool pool $ do
     let name = projectsName project
     let summary = projectsSummary project
     return (PackageInfo name summary)
-
-dbTest :: ConnectionPool -> IO DbTest
-dbTest pool = flip runSqlPersistMPool pool $ do
-    mproj <- findProject "anaconda"
-    let proj = fromJust mproj
-    return (DbTest "fix this")
 
 depsolvePkg :: ConnectionPool -> T.Text -> IO [T.Text]
 depsolvePkg pool package = do
