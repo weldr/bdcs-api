@@ -15,10 +15,10 @@
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -51,7 +51,6 @@ import           Database.Persist
 import           Database.Persist.Sql
 import           Database.Persist.Sqlite
 import qualified GI.Ggit as Git
-import           GHC.Generics
 import           Network.Wai
 import           Network.Wai.Handler.Warp
 import           Network.Wai.Middleware.Cors
@@ -63,10 +62,23 @@ data ServerStatus = ServerStatus
   ,  srvSchema    :: String
   ,  srvDb        :: String
   ,  srvSupported :: Bool
-  } deriving (Generic, Eq, Show)
+  } deriving (Eq, Show)
 
-instance ToJSON ServerStatus
-instance FromJSON ServerStatus
+instance ToJSON ServerStatus where
+  toJSON ServerStatus{..} = object [
+      "version"   .= srvVersion
+    , "schema"    .= srvSchema
+    , "db"        .= srvDb
+    , "supported" .= srvSupported ]
+
+instance FromJSON ServerStatus where
+  parseJSON = withObject "server status" $ \o -> do
+    srvVersion   <- o .: "version"
+    srvSchema    <- o .: "schema"
+    srvDb        <- o .: "db"
+    srvSupported <- o .: "supported"
+    return ServerStatus{..}
+
 
 type CommonAPI = "status" :> Get '[JSON] ServerStatus
 

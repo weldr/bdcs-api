@@ -15,12 +15,12 @@
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -60,7 +60,6 @@ import           Data.Time.Calendar
 import           Database.Persist
 import           Database.Persist.Sql
 import           Database.Persist.Sqlite
-import           GHC.Generics
 import           Data.GI.Base(GError(..), gerrorMessage)
 import           Network.Wai
 import           Network.Wai.Handler.Warp
@@ -72,21 +71,39 @@ import           Servant
 {-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
 
 data PackageInfo = PackageInfo
-  {  name    :: T.Text
-  ,  summary :: T.Text
-  } deriving (Generic, Eq, Show)
+  {  piName    :: T.Text
+  ,  piSummary :: T.Text
+  } deriving (Eq, Show)
 
-instance ToJSON PackageInfo
-instance FromJSON PackageInfo
+instance ToJSON PackageInfo where
+  toJSON PackageInfo{..} = object [
+      "name"    .= piName
+    , "summary" .= piSummary ]
+
+instance FromJSON PackageInfo where
+  parseJSON = withObject "package info" $ \o -> do
+    piName    <- o .: "name"
+    piSummary <- o .: "summary"
+    return PackageInfo{..}
+
 
 -- | RecipesAPIError is used to report errors with the /recipes/ routes
 data RecipesAPIError = RecipesAPIError
-  {  recipe     :: T.Text,
-     msg        :: T.Text
-  } deriving (Generic, Eq, Show)
+  {  raeRecipe  :: T.Text,
+     raeMsg     :: T.Text
+  } deriving (Eq, Show)
 
-instance ToJSON RecipesAPIError
-instance FromJSON RecipesAPIError
+instance ToJSON RecipesAPIError where
+  toJSON RecipesAPIError{..} = object [
+      "recipe".= raeRecipe
+    , "msg"   .= raeMsg ]
+
+instance FromJSON RecipesAPIError where
+  parseJSON = withObject "API Error" $ \o -> do
+    raeRecipe <- o .: "recipe"
+    raeMsg    <- o .: "msg"
+    return RecipesAPIError{..}
+
 
 type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
         :<|> "depsolve" :> Capture "package" T.Text :> Get '[JSON] [T.Text]
@@ -140,13 +157,27 @@ errTest = throwError myError
     myError = createApiError err503 "test_api_error" "This is a test of an API Error Response"
 
 data RecipesListResponse = RecipesListResponse {
-    recipes     :: [T.Text],
-    offset      :: Int,
-    limit       :: Int,
-    total       :: Int
-} deriving (Generic, Show, Eq)
-instance ToJSON RecipesListResponse
-instance FromJSON RecipesListResponse
+    rlrRecipes  :: [T.Text],
+    rlrOffset   :: Int,
+    rlrLimit    :: Int,
+    rlrTotal    :: Int
+} deriving (Show, Eq)
+
+instance ToJSON RecipesListResponse where
+  toJSON RecipesListResponse{..} = object [
+      "recipes" .= rlrRecipes
+    , "offset"  .= rlrOffset
+    , "limit"   .= rlrLimit
+    , "total"   .= rlrTotal ]
+
+instance FromJSON RecipesListResponse where
+  parseJSON = withObject "/recipes/list response" $ \o -> do
+    rlrRecipes <- o .: "recipes"
+    rlrOffset  <- o .: "offset"
+    rlrLimit   <- o .: "limit"
+    rlrTotal   <- o .: "total"
+    return RecipesListResponse{..}
+
 
 -- | /api/v0/recipes/list
 -- List the names of the available recipes
@@ -177,19 +208,40 @@ recipesList repoLock branch = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
 
 
 data WorkspaceChanges = WorkspaceChanges {
-    name        :: T.Text,
-    changed     :: Bool
-} deriving (Generic, Show, Eq)
-instance ToJSON WorkspaceChanges
-instance FromJSON WorkspaceChanges
+    wcName      :: T.Text,
+    wcChanged   :: Bool
+} deriving (Show, Eq)
+instance ToJSON WorkspaceChanges where
+  toJSON WorkspaceChanges{..} = object [
+      "name"    .= wcName
+    , "changed" .= wcChanged ]
+
+instance FromJSON WorkspaceChanges where
+  parseJSON = withObject "workspace changes" $ \o -> do
+    wcName    <- o .: "name"
+    wcChanged <- o .: "changed"
+    return WorkspaceChanges{..}
+
 
 data RecipesInfoResponse = RecipesInfoResponse {
-    changes     :: [WorkspaceChanges],
-    recipes     :: [Recipe],
-    errors      :: [RecipesAPIError]
-} deriving (Generic, Show, Eq)
-instance ToJSON RecipesInfoResponse
-instance FromJSON RecipesInfoResponse
+    rirChanges  :: [WorkspaceChanges],
+    rirRecipes  :: [Recipe],
+    rirErrors   :: [RecipesAPIError]
+} deriving (Show, Eq)
+
+instance ToJSON RecipesInfoResponse where
+  toJSON RecipesInfoResponse{..} = object [
+      "changes"   .= rirChanges
+    , "recipes" .= rirRecipes
+    , "errors"  .= rirErrors ]
+
+instance FromJSON RecipesInfoResponse where
+  parseJSON = withObject "/recipes/info response" $ \o -> do
+    rirChanges <- o .: "changes"
+    rirRecipes <- o .: "recipes"
+    rirErrors  <- o .: "errors"
+    return RecipesInfoResponse{..}
+
 
 -- | /api/v0/recipes/info/<recipes>
 -- Return the contents of the recipe, or a list of recipes
@@ -316,31 +368,65 @@ recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock re
 -- |  - [Example JSON](fn.recipes_freeze.html#examples)
 
 
--- data CommitDetails = CommitDetails {
---     commit      :: T.Text,
---     time        :: T.Text,
---     summary     :: T.Text,
---     revision    :: Maybe Int
--- }
-instance ToJSON CommitDetails
-instance FromJSON CommitDetails
+-- JSON instances for Recipes.CommitDetails
+instance ToJSON CommitDetails where
+  toJSON CommitDetails{..} = object [
+      "commit"   .= cdCommit
+    , "time"     .= cdTime
+    , "message"  .= cdMessage
+    , "revision" .= cdRevision ]
+
+instance FromJSON CommitDetails where
+  parseJSON = withObject "/recipes/info response" $ \o -> do
+    cdCommit   <- o .: "commit"
+    cdTime     <- o .: "time"
+    cdMessage  <- o .: "message"
+    cdRevision <- o .: "revision"
+    return CommitDetails{..}
+
 
 data RecipeChanges = RecipeChanges {
-    name        :: T.Text,
-    change      :: [CommitDetails],
-    total       :: Int
-} deriving (Generic, Show, Eq)
-instance ToJSON RecipeChanges
-instance FromJSON RecipeChanges
+    rcName      :: T.Text,
+    rcChange    :: [CommitDetails],
+    rcTotal     :: Int
+} deriving (Show, Eq)
+
+instance ToJSON RecipeChanges where
+  toJSON RecipeChanges{..} = object [
+      "name"   .= rcName
+    , "change" .= rcChange
+    , "total"  .= rcTotal ]
+
+instance FromJSON RecipeChanges where
+  parseJSON = withObject "recipe changes" $ \o -> do
+    rcName   <- o .: "name"
+    rcChange <- o .: "change"
+    rcTotal  <- o .: "total"
+    return RecipeChanges{..}
+
 
 data RecipesChangesResponse = RecipesChangesResponse {
-    recipes     :: [RecipeChanges],
-    errors      :: [RecipesAPIError],
-    offset      :: Int,
-    limit       :: Int
-} deriving (Generic, Show, Eq)
-instance ToJSON RecipesChangesResponse
-instance FromJSON RecipesChangesResponse
+    rcrRecipes  :: [RecipeChanges],
+    rcrErrors   :: [RecipesAPIError],
+    rcrOffset   :: Int,
+    rcrLimit    :: Int
+} deriving (Show, Eq)
+
+instance ToJSON RecipesChangesResponse where
+  toJSON RecipesChangesResponse{..} = object [
+      "recipes" .= rcrRecipes
+    , "errors" .= rcrErrors
+    , "offset" .= rcrOffset
+    , "limit"  .= rcrLimit ]
+
+instance FromJSON RecipesChangesResponse where
+  parseJSON = withObject "/recipes/changes/ response" $ \o -> do
+    rcrRecipes <- o .: "recipes"
+    rcrErrors  <- o .: "errors"
+    rcrOffset  <- o .: "offset"
+    rcrLimit   <- o .: "limit"
+    return RecipesChangesResponse{..}
+
 
 -- | /api/v0/recipes/changes/<recipes>
 -- Return the commit history of the recipes
