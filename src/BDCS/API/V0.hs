@@ -28,7 +28,9 @@ module BDCS.API.V0(DbTest(..),
                    PackageInfo(..),
                    RecipesListResponse(..),
                    RecipesInfoResponse(..),
+                   RecipesChangesResponse(..),
                    RecipesAPIError(..),
+                   RecipeChanges(..),
                    WorkspaceChanges(..),
                    V0API,
                    v0ApiServer)
@@ -52,7 +54,7 @@ import           Control.Monad.Logger(runStderrLoggingT)
 import           Control.Monad.Reader
 import           Data.Aeson
 import           Data.List(intercalate, sortBy)
-import           Data.Maybe(fromJust, listToMaybe)
+import           Data.Maybe(fromJust, fromMaybe, listToMaybe)
 import           Data.String.Conversions(cs)
 import qualified Data.Text as T
 import           Data.Time.Calendar
@@ -100,6 +102,9 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
         :<|> "errtest"  :> Get '[JSON] [T.Text]
         :<|> "recipes"  :> "list" :> Get '[JSON] RecipesListResponse
         :<|> "recipes"  :> "info" :> Capture "recipes" String :> Get '[JSON] RecipesInfoResponse
+        :<|> "recipes"  :> "changes" :> Capture "recipes" String
+                                     :> QueryParam "offset" Int
+                                     :> QueryParam "limit" Int :> Get '[JSON] RecipesChangesResponse
 
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
@@ -108,6 +113,7 @@ v0ApiServer repoLock pool = pkgInfoH
                        :<|> errTestH
                        :<|> recipesListH
                        :<|> recipesInfoH
+                       :<|> recipesChangesH
   where
     pkgInfoH package     = liftIO $ packageInfo pool package
     dbTestH              = liftIO $ dbTest pool
@@ -115,6 +121,7 @@ v0ApiServer repoLock pool = pkgInfoH
     errTestH             = errTest
     recipesListH         = recipesList repoLock "master"
     recipesInfoH recipes = recipesInfo repoLock "master" recipes
+    recipesChangesH recipes offset limit = recipesChanges repoLock "master" recipes offset limit
 
 packageInfo :: ConnectionPool -> T.Text -> IO PackageInfo
 packageInfo pool package = flip runSqlPersistMPool pool $ do
@@ -326,11 +333,123 @@ recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock re
 -- |  - [Example JSON](fn.recipes_freeze.html#examples)
 
 
+-- data CommitDetails = CommitDetails {
+--     commit      :: T.Text,
+--     time        :: T.Text,
+--     summary     :: T.Text,
+--     revision    :: Maybe Int
+-- }
+instance ToJSON CommitDetails
+instance FromJSON CommitDetails
 
--- | * `/api/v0/recipes/changes/<recipes>`
--- |  - Return the commit history of the recipes
--- |  - [Example JSON](fn.recipes_changes.html#examples)
--- |  - [Optional filter parameters](../index.html#optional-filter-parameters)
+data RecipeChanges = RecipeChanges {
+    name        :: T.Text,
+    change      :: [CommitDetails],
+    total       :: Int
+} deriving (Generic, Show, Eq)
+instance ToJSON RecipeChanges
+instance FromJSON RecipeChanges
+
+data RecipesChangesResponse = RecipesChangesResponse {
+    recipes     :: [RecipeChanges],
+    errors      :: [RecipesAPIError],
+    offset      :: Int,
+    limit       :: Int
+} deriving (Generic, Show, Eq)
+instance ToJSON RecipesChangesResponse
+instance FromJSON RecipesChangesResponse
+
+-- | /api/v0/recipes/changes/<recipes>
+-- Return the commit history of the recipes
+--
+-- The changes for each listed recipe will have offset and limit applied to them.
+-- This means that there will be cases where changes will be empty, when offset > total
+-- for the recipe.
+--
+-- If a recipe commit has been tagged as a new revision the `changes` will include a
+-- `revision` field set to the revision number. If the commit has not been tagged it
+-- will not have this field included.
+--
+-- > {
+-- >     "recipes": [
+-- >         {
+-- >             "name": "nfs-server",
+-- >             "changes": [
+-- >                 {
+-- >                     "commit": "97d483e8dd0b178efca9a805e5fd8e722c48ac8e",
+-- >                     "time": "Wed,  1 Mar 2017 13:29:37 -0800",
+-- >                     "summary": "Recipe nfs-server saved"
+-- >                 },
+-- >                 {
+-- >                     "commit": "857e1740f983bf033345c3242204af0ed7b81f37",
+-- >                     "time": "Wed,  1 Mar 2017 09:28:53 -0800",
+-- >                     "summary": "Recipe nfs-server saved",
+-- >                     "revision" : 1
+-- >                 }
+-- >             ],
+-- >             "total": 2
+-- >         },
+-- >         {
+-- >             "name": "ruby",
+-- >             "changes": [
+-- >                 {
+-- >                     "commit": "4b84f072befc3f4debbe1348d6f4b166f7c83d78",
+-- >                     "time": "Wed,  1 Mar 2017 13:32:09 -0800",
+-- >                     "summary": "Recipe ruby saved"
+-- >                 },
+-- >                 {
+-- >                     "commit": "85999253c1790367a860a344ea622971b7e0a050",
+-- >                     "time": "Wed,  1 Mar 2017 13:31:19 -0800",
+-- >                     "summary": "Recipe ruby saved"
+-- >                 }
+-- >             ],
+-- >             "total": 2
+-- >         }
+-- >     ],
+-- >     "errors": [
+-- >         {
+-- >             "recipe": "a-missing-recipe",
+-- >             "msg": "Error retrieving a-missing-recipe"
+-- >         }
+-- >     ]
+-- >     "offset": 0,
+-- >     "limit": 20
+-- > }
+--
+recipesChanges :: GitLock -> T.Text -> String -> Maybe Int -> Maybe Int -> Handler RecipesChangesResponse
+recipesChanges repoLock branch recipe_names moffset mlimit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+    let recipe_name_list = map T.pack (argify [recipe_names])
+    let offset = fromMaybe 0 moffset
+    let limit  = fromMaybe 20 mlimit
+    (changes, errors) <- allRecipeChanges recipe_name_list [] []
+    return $ RecipesChangesResponse changes errors offset limit
+  where
+    allRecipeChanges [] _ _ = return ([], [])
+    allRecipeChanges [recipe_name] changes_list errors_list =
+                     oneRecipeChange recipe_name changes_list errors_list
+    allRecipeChanges (recipe_name:xs) changes_list errors_list = do
+                     (new_changes, new_errors) <- oneRecipeChange recipe_name changes_list errors_list
+                     allRecipeChanges xs new_changes new_errors
+
+    oneRecipeChange recipe_name changes_list errors_list = do
+        result <- catch_recipe_changes recipe_name
+        return (new_changes result, new_errors result)
+      where
+        new_changes result = case result of
+            Left  _       -> changes_list
+            Right changes -> RecipeChanges recipe_name changes (length changes):changes_list
+
+        new_errors result = case result of
+            Left  err -> RecipesAPIError recipe_name (T.pack err):errors_list
+            Right _   -> errors_list
+
+    catch_recipe_changes :: T.Text -> IO (Either String [CommitDetails])
+    catch_recipe_changes recipe_name =
+        CE.catches (Right <$> listRecipeCommits (gitRepo repoLock) branch recipe_name)
+                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
+                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+
+
 -- | * `/api/v0/recipes/diff/<recipe>/<from_commit>/<to_commit>`
 -- |  - Return the diff between the two recipe commits. Set to_commit to NEWEST to use the newest commit.
 -- |  - [Example JSON](fn.recipes_diff.html#examples)
