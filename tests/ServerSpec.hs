@@ -32,6 +32,10 @@ import           Servant
 import           Servant.Client
 import           Test.Hspec
 
+{-# ANN module ("HLint: ignore Reduce duplication"  :: String) #-}
+{-# ANN module ("HLint: ignore Use null"  :: String) #-}
+{-# ANN module ("HLint: ignore Use head"  :: String) #-}
+
 -- Client API
 getStatus :: ClientM ServerStatus
 getPackage :: T.Text -> ClientM PackageInfo
@@ -39,8 +43,9 @@ getDeps :: T.Text -> ClientM [T.Text]
 getErr :: ClientM [T.Text]
 getRecipes :: ClientM RecipesListResponse
 getRecipesInfo :: String -> ClientM RecipesInfoResponse
+getRecipesChanges :: String -> Maybe Int -> Maybe Int -> ClientM RecipesChangesResponse
 getStatus :<|> getPackage :<|> getDeps :<|> getErr
-          :<|> getRecipes :<|> getRecipesInfo = client proxyAPI
+          :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges = client proxyAPI
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.
@@ -105,7 +110,58 @@ errorRecipeResponse =
                         ]
                         [RecipesAPIError "missing-recipe" "missing-recipe.toml is not present on branch master"]
 
+-- If it has 0 errors, 1 change named http-server, 0 offset and a limit of 20 it passes
+recipesChangesTest1 :: ClientM Bool
+recipesChangesTest1 = do
+    response <- getRecipesChanges "http-server" Nothing Nothing
+    return $ length_ok response && name_ok response && error_ok response && limits_ok response
+  where
+    length_ok :: RecipesChangesResponse -> Bool
+    length_ok response = length (rcrRecipes response) == 1
 
+    name_ok :: RecipesChangesResponse -> Bool
+    name_ok response = rcName (rcrRecipes response !! 0) == "http-server"
+
+    error_ok :: RecipesChangesResponse -> Bool
+    error_ok response = length (rcrErrors response) == 0
+
+    limits_ok :: RecipesChangesResponse -> Bool
+    limits_ok response = rcrOffset response == 0 && rcrLimit response == 20
+
+-- If it has 0 errors, 1 change named http-server, 1 named glusterfs, 0 offset and a limit of 20 it passes
+recipesChangesTest2 :: ClientM Bool
+recipesChangesTest2 = do
+    response <- getRecipesChanges "http-server,glusterfs" Nothing Nothing
+    return $ length_ok response && name_ok response && error_ok response && limits_ok response
+  where
+    length_ok :: RecipesChangesResponse -> Bool
+    length_ok response = length (rcrRecipes response) == 2
+
+    name_ok :: RecipesChangesResponse -> Bool
+    name_ok response = rcName (rcrRecipes response !! 0) == "glusterfs" &&
+                       rcName (rcrRecipes response !! 1) == "http-server"
+
+    error_ok :: RecipesChangesResponse -> Bool
+    error_ok response = length (rcrErrors response) == 0
+
+    limits_ok :: RecipesChangesResponse -> Bool
+    limits_ok response = rcrOffset response == 0 && rcrLimit response == 20
+
+-- Check that limit and offset are parsed
+-- XXX After /recipes/new has been added this will be used to test it more extensively
+recipesChangesTest3 :: ClientM Bool
+recipesChangesTest3 = do
+    response <- getRecipesChanges "http-server" (Just 15) (Just 5)
+    return $ limits_ok response
+  where
+    limits_ok :: RecipesChangesResponse -> Bool
+    limits_ok response = rcrOffset response == 15 && rcrLimit response == 5
+
+
+-- XXX NOTE that the results tested here depend on the Recipes tests having been run
+-- Spec executes things in alphabetical order, so currently this is true.
+-- After /recipes/new is added this can be changed and it can depend on commits made
+-- via the API instead of directly.
 spec :: Spec
 spec =
     describe "/api" $
@@ -127,6 +183,15 @@ spec =
 
             it "Get http-server recipe and missing-recipe info" $ \env ->
                 try env (getRecipesInfo "http-server,missing-recipe,glusterfs")  `shouldReturn` errorRecipeResponse
+
+            it "Get changes to http-server recipe" $ \env ->
+                try env recipesChangesTest1 `shouldReturn` True
+
+            it "Get changes to http-server and glusterfs recipes" $ \env ->
+                try env recipesChangesTest2 `shouldReturn` True
+
+            it "Check offset and limit usage" $ \env ->
+                try env recipesChangesTest3 `shouldReturn` True
 
 withClient :: IO Application -> SpecWith ClientEnv -> SpecWith ()
 withClient x innerSpec =
