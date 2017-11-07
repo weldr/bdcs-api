@@ -312,6 +312,7 @@ recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock re
     (changes, recipes, errors) <- allRecipeInfo recipe_name_list [] [] []
     return $ RecipesInfoResponse changes recipes errors
   where
+    allRecipeInfo :: [T.Text] -> [WorkspaceChanges] -> [Recipe] -> [RecipesAPIError] -> IO ([WorkspaceChanges], [Recipe], [RecipesAPIError])
     allRecipeInfo [] _ _ _ = return ([], [], [])
     allRecipeInfo [recipe_name] changes_list recipes_list errors_list =
                   oneRecipeInfo recipe_name changes_list recipes_list errors_list
@@ -319,18 +320,22 @@ recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock re
                   (new_changes, new_recipes, new_errors) <- oneRecipeInfo recipe_name changes_list recipes_list errors_list
                   allRecipeInfo xs new_changes new_recipes new_errors
 
+    oneRecipeInfo :: T.Text -> [WorkspaceChanges] -> [Recipe] -> [RecipesAPIError] -> IO ([WorkspaceChanges], [Recipe], [RecipesAPIError])
     oneRecipeInfo recipe_name changes_list recipes_list errors_list = do
         result <- getRecipeInfo recipe_name
         return (new_changes result, new_recipes result, new_errors result)
       where
+        new_errors :: Either String (Bool, Recipe) -> [RecipesAPIError]
         new_errors result = case result of
             Left  err    -> RecipesAPIError recipe_name (T.pack err):errors_list
             Right (_, _) -> errors_list
 
+        new_changes :: Either String (Bool, Recipe) -> [WorkspaceChanges]
         new_changes result = case result of
             Left  _            -> changes_list
             Right (changed, _) -> WorkspaceChanges recipe_name changed:changes_list
 
+        new_recipes :: Either String (Bool, Recipe) -> [Recipe]
         new_recipes result = case result of
             Left  _           -> recipes_list
             Right (_, recipe) -> recipe:recipes_list
