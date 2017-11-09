@@ -326,19 +326,16 @@ recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock re
         return (new_changes result, new_recipes result, new_errors result)
       where
         new_errors :: Either String (Bool, Recipe) -> [RecipesAPIError]
-        new_errors result = case result of
-            Left  err    -> RecipesAPIError recipe_name (T.pack err):errors_list
-            Right (_, _) -> errors_list
+        new_errors (Left err)  = RecipesAPIError recipe_name (T.pack err):errors_list
+        new_errors (Right _) = errors_list
 
         new_changes :: Either String (Bool, Recipe) -> [WorkspaceChanges]
-        new_changes result = case result of
-            Left  _            -> changes_list
-            Right (changed, _) -> WorkspaceChanges recipe_name changed:changes_list
+        new_changes (Right (changed, _)) = WorkspaceChanges recipe_name changed:changes_list
+        new_changes (Left _)             = changes_list
 
         new_recipes :: Either String (Bool, Recipe) -> [Recipe]
-        new_recipes result = case result of
-            Left  _           -> recipes_list
-            Right (_, recipe) -> recipe:recipes_list
+        new_recipes (Right (_, recipe)) = recipe:recipes_list
+        new_recipes (Left _)            = recipes_list
 
     -- Get the recipe from the workspace or from git
     getRecipeInfo :: T.Text -> IO (Either String (Bool, Recipe))
@@ -510,14 +507,12 @@ recipesChanges repoLock branch recipe_names moffset mlimit = liftIO $ RWL.withRe
         return (new_changes result, new_errors result)
       where
         new_changes :: Either String [CommitDetails] -> [RecipeChanges]
-        new_changes result = case result of
-            Left  _       -> changes_list
-            Right changes -> RecipeChanges recipe_name (apply_limits changes) (length $ apply_limits changes):changes_list
+        new_changes (Right changes) = RecipeChanges recipe_name (apply_limits changes) (length $ apply_limits changes):changes_list
+        new_changes (Left _)        = changes_list
 
         new_errors :: Either String [CommitDetails] -> [RecipesAPIError]
-        new_errors result = case result of
-            Left  err -> RecipesAPIError recipe_name (T.pack err):errors_list
-            Right _   -> errors_list
+        new_errors (Left err) = RecipesAPIError recipe_name (T.pack err):errors_list
+        new_errors (Right _)  = errors_list
 
     offset :: Int
     offset = fromMaybe 0 moffset
