@@ -41,7 +41,8 @@ module BDCS.API.Recipes(openOrCreateRepo,
                         runGitRepoTests,
                         runWorkspaceTests,
                         CommitDetails(..),
-                        GitError(..))
+                        GitError(..),
+                        printOId)
   where
 
 import           BDCS.API.Recipe
