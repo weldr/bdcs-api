@@ -31,23 +31,10 @@ module BDCS.API.Server(mkApp,
 import           BDCS.API.Recipes(openOrCreateRepo, commitRecipeDirectory)
 import           BDCS.API.Utils(GitLock(..))
 import           BDCS.API.V0(V0API, v0ApiServer)
-import           BDCS.DB
-import           BDCS.Depclose(depclose)
-import           BDCS.Depsolve(formulaToCNF, solveCNF)
-import           BDCS.Groups(groupIdToNevra)
-import           Utils.Monad(mapMaybeM)
-import           BDCS.Projects(findProject, getProject)
 import qualified Control.Concurrent.ReadWriteLock as RWL
-import           Control.Monad.Except
 import           Control.Monad.Logger(runStderrLoggingT)
-import           Control.Monad.Reader
 import           Data.Aeson
-import           Data.List(intercalate)
-import           Data.Maybe(fromJust, listToMaybe)
 import           Data.String.Conversions(cs)
-import qualified Data.Text as T
-import           Data.Time.Calendar
-import           Database.Persist
 import           Database.Persist.Sql
 import           Database.Persist.Sqlite
 import qualified GI.Ggit as Git

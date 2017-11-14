@@ -19,11 +19,9 @@
 module BDCS.API.Error(createApiError)
   where
 
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Lazy.Char8 as C8
 import           Network.HTTP.Types(Header)
 import           Servant hiding (Header)
-import           Text.Printf(printf)
 
 createApiError :: ServantErr -> String -> String -> ServantErr
 createApiError base apiId message = base { errBody=apiError, errHeaders=[jsonContentHdr] }

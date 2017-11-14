@@ -25,7 +25,6 @@ import           BDCS.API.V0
 import           Control.Exception (throwIO)
 import qualified Data.Text as T
 import           Network.HTTP.Client (Manager, newManager, defaultManagerSettings)
-import           Network.HTTP.Types
 import           Network.Wai (Application)
 import           Network.Wai.Handler.Warp
 import           Servant

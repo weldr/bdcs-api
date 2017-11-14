@@ -49,22 +49,12 @@ import           BDCS.Projects(findProject, getProject)
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import qualified Control.Exception as CE
 import           Control.Monad.Except
-import           Control.Monad.Logger(runStderrLoggingT)
-import           Control.Monad.Reader
 import           Data.Aeson
-import           Data.List(intercalate, sortBy)
-import           Data.Maybe(fromJust, fromMaybe, listToMaybe)
-import           Data.String.Conversions(cs)
+import           Data.List(sortBy)
+import           Data.Maybe(fromJust, fromMaybe)
 import qualified Data.Text as T
-import           Data.Time.Calendar
-import           Database.Persist
 import           Database.Persist.Sql
-import           Database.Persist.Sqlite
-import           Data.GI.Base(GError(..), gerrorMessage)
-import           Network.Wai
-import           Network.Wai.Handler.Warp
-import           Network.Wai.Middleware.Cors
-import           Network.Wai.Middleware.Servant.Options
+import           Data.GI.Base(GError(..))
 import           Servant
 
 

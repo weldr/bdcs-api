@@ -23,7 +23,7 @@ module BDCS.API.Workspace(workspaceRead,
                           WorkspaceError(..))
   where
 
-import           BDCS.API.Recipe(Recipe(..), RecipeModule(..), parseRecipe, recipeTOML, recipeTomlFilename)
+import           BDCS.API.Recipe(Recipe(..), parseRecipe, recipeTOML, recipeTomlFilename)
 import           BDCS.API.Utils(maybeThrow)
 import           Control.Conditional(ifM, whenM)
 import           Control.Exception
@@ -33,7 +33,6 @@ import           GI.Gio(fileGetPath)
 import qualified GI.Ggit as Git
 import           System.Directory(createDirectoryIfMissing, doesFileExist, removeFile)
 import           System.FilePath.Posix((</>))
-import           System.IO.Temp(withTempDirectory)
 
 data WorkspaceError =
     RepoLocationError
