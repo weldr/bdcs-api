@@ -32,6 +32,7 @@ import           BDCS.API.Recipes(openOrCreateRepo, commitRecipeDirectory)
 import           BDCS.API.Utils(GitLock(..))
 import           BDCS.API.V0(V0API, v0ApiServer)
 import qualified Control.Concurrent.ReadWriteLock as RWL
+import           Control.Monad(void)
 import           Control.Monad.Logger(runStderrLoggingT)
 import           Data.Aeson
 import           Data.String.Conversions(cs)
@@ -108,7 +109,7 @@ mkApp gitRepoPath sqliteDbPath = do
     Git.init
     repo <- openOrCreateRepo gitRepoPath
 --    commitRecipeDirectory repo "master" "./tests/recipes/"
-    commitRecipeDirectory repo "master" "/var/tmp/test-recipes/"
+    void $ commitRecipeDirectory repo "master" "/var/tmp/test-recipes/"
     lock <- RWL.new
 
     let repoLock = GitLock lock repo

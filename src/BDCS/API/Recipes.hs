@@ -49,7 +49,7 @@ import           BDCS.API.Utils(maybeThrow)
 import           BDCS.API.Workspace
 import           Control.Conditional(ifM, whenM)
 import           Control.Exception
-import           Control.Monad(filterM, unless)
+import           Control.Monad(filterM, unless, void)
 import           Control.Monad.Loops(allM)
 import           Data.Aeson(FromJSON(..), ToJSON(..), (.=), (.:), object, withObject)
 import qualified Data.ByteString as BS
@@ -156,7 +156,7 @@ openOrCreateRepo path = do
         tree <- Git.repositoryLookupTree repo tree_id >>= maybeThrow LookupTreeError
         let ref = Just "HEAD"
         let encoding = Just "UTF-8"
-        Git.repositoryCreateCommit repo ref sig sig encoding "Initial Recipe repository commit" tree [] >>= maybeThrow CreateCommitError
+        void $ Git.repositoryCreateCommit repo ref sig sig encoding "Initial Recipe repository commit" tree [] >>= maybeThrow CreateCommitError
 
         return repo
 
@@ -189,7 +189,7 @@ writeCommit repo branch filename message content = do
     -- Use treebuilder to make a new entry for this filename and blob: repositoryCreateTreeBuilderFromTree
     parent_tree <- Git.commitGetTree parent_commit >>= maybeThrow GetTreeError
     builder <- Git.repositoryCreateTreeBuilderFromTree repo parent_tree >>= maybeThrow TreeBuilderError
-    Git.treeBuilderInsert builder filename blob_id Git.FileModeBlob >>= maybeThrow BuilderInsertError
+    void $ Git.treeBuilderInsert builder filename blob_id Git.FileModeBlob >>= maybeThrow BuilderInsertError
     (tree, sig, ref, encoding) <- prepareCommit repo branch builder
     Git.repositoryCreateCommit repo ref sig sig encoding message tree [parent_commit] >>= maybeThrow CreateCommitError
 
@@ -279,7 +279,7 @@ revertFileCommit repo branch filename commit_id = do
     -- Use treebuilder to modify the tree
     parent_tree <- Git.commitGetTree parent_commit >>= maybeThrow GetTreeError
     builder <- Git.repositoryCreateTreeBuilderFromTree repo parent_tree >>= maybeThrow TreeBuilderError
-    Git.treeBuilderInsert builder filename blob_id Git.FileModeBlob
+    void $ Git.treeBuilderInsert builder filename blob_id Git.FileModeBlob
     (tree, sig, ref, encoding) <- prepareCommit repo branch builder
     commit <- Git.oIdToString commit_id >>= maybeThrow OIdError
     let message = T.pack $ printf "Recipe %s reverted to commit %s" filename commit
@@ -594,15 +594,15 @@ testGitRepo tmpdir = do
 
     -- Commit a file to the repo
     putStrLn "    - Committing http-server.toml"
-    commitRecipeFile repo "master" "./tests/recipes/http-server.toml"
+    void $ commitRecipeFile repo "master" "./tests/recipes/http-server.toml"
 
     -- Commit a directory to the repo
     putStrLn "    - Committing a directory of recipes"
-    commitRecipeDirectory repo "master" "./tests/recipes/"
+    void $ commitRecipeDirectory repo "master" "./tests/recipes/"
 
     -- Commit a Recipe record to the repo
     putStrLn "    - Committing a Recipe record"
-    commitRecipe repo "master" testRecipe
+    void $ commitRecipe repo "master" testRecipe
 
     -- Check that the testRecipe's version was not bumped on 1st save
     putStrLn "    - Checking Recipe Version"
@@ -613,7 +613,7 @@ testGitRepo tmpdir = do
     -- Check that saving a changed recipe, with the same version, bumps it.
     let new_recipe1      = testRecipe { rDescription = "Second commit with same version, should bump" }
     putStrLn "    - Committing a Recipe record with changed description"
-    commitRecipe repo "master" new_recipe1
+    void $ commitRecipe repo "master" new_recipe1
 
     -- Check that the version was bumped on the 2nd save
     putStrLn "    - Checking Modified Recipe's Version"
@@ -625,7 +625,7 @@ testGitRepo tmpdir = do
     let new_recipe2 = testRecipe {rDescription = "Third commit with new version, should just use it",
                                   rVersion = Just "0.3.1"}
     putStrLn "    - Committing a Recipe record with changed description and different version"
-    commitRecipe repo "master" new_recipe2
+    void $ commitRecipe repo "master" new_recipe2
 
     -- Check that the version was used as-is
     putStrLn "    - Checking Modified Recipe's Version"
@@ -648,7 +648,7 @@ testGitRepo tmpdir = do
 
     -- delete http-server.toml file
     putStrLn "    - Delete the http-server.toml file"
-    deleteFile repo "master" "http-server.toml"
+    void $ deleteFile repo "master" "http-server.toml"
 
     -- List the files on master
     putStrLn "    - Check that http-server.toml has been deleted"
@@ -657,7 +657,7 @@ testGitRepo tmpdir = do
 
     -- Revert the delete
     commit_id <- Git.oIdNewFromString (cdCommit $ head http_commits) >>= maybeThrow NewOIdError
-    revertFileCommit repo "master" "http-server.toml" commit_id
+    void $ revertFileCommit repo "master" "http-server.toml" commit_id
 
     -- List the files on master
     putStrLn "    - Check that http-server.toml has been restored"
