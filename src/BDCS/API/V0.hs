@@ -369,24 +369,6 @@ recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock re
 -- |  - Return the contents of the recipe with frozen dependencies instead of expressions.
 -- |  - [Example JSON](fn.recipes_freeze.html#examples)
 
-
--- JSON instances for Recipes.CommitDetails
-instance ToJSON CommitDetails where
-  toJSON CommitDetails{..} = object [
-      "commit"   .= cdCommit
-    , "time"     .= cdTime
-    , "message"  .= cdMessage
-    , "revision" .= cdRevision ]
-
-instance FromJSON CommitDetails where
-  parseJSON = withObject "/recipes/info response" $ \o -> do
-    cdCommit   <- o .: "commit"
-    cdTime     <- o .: "time"
-    cdMessage  <- o .: "message"
-    cdRevision <- o .: "revision"
-    return CommitDetails{..}
-
-
 data RecipeChanges = RecipeChanges {
     rcName      :: T.Text,
     rcChange    :: [CommitDetails],

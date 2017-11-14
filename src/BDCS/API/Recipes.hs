@@ -16,6 +16,7 @@
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module BDCS.API.Recipes(openOrCreateRepo,
                         findOrCreateBranch,
@@ -50,6 +51,7 @@ import           Control.Conditional(ifM, whenM)
 import           Control.Exception
 import           Control.Monad(filterM, unless)
 import           Control.Monad.Loops(allM)
+import           Data.Aeson(FromJSON(..), ToJSON(..), (.=), (.:), object, withObject)
 import qualified Data.ByteString as BS
 import           Data.Either(rights)
 import           Data.List(elemIndices, isSuffixOf)
@@ -290,6 +292,22 @@ data CommitDetails =
                   , cdMessage   :: T.Text
                   , cdRevision  :: Maybe Int
     } deriving (Show, Eq)
+
+-- JSON instances for CommitDetails
+instance ToJSON CommitDetails where
+  toJSON CommitDetails{..} = object [
+      "commit"   .= cdCommit
+    , "time"     .= cdTime
+    , "message"  .= cdMessage
+    , "revision" .= cdRevision ]
+
+instance FromJSON CommitDetails where
+  parseJSON = withObject "/recipes/info response" $ \o -> do
+    cdCommit   <- o .: "commit"
+    cdTime     <- o .: "time"
+    cdMessage  <- o .: "message"
+    cdRevision <- o .: "revision"
+    return CommitDetails{..}
 
 listRecipeCommits :: Git.Repository -> T.Text -> T.Text -> IO [CommitDetails]
 listRecipeCommits repo branch recipe_name = listCommits repo branch (recipeTomlFilename $ T.unpack recipe_name)
