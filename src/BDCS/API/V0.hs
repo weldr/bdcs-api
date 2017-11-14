@@ -137,7 +137,7 @@ depsolvePkg pool package = do
         solution <- solveCNF (formulaToCNF formula)
         mapMaybeM groupIdToNevra $ map fst $ filter snd solution
     case result of
-        Left e            -> return []
+        Left _            -> return []
         Right assignments -> return assignments
 
 errTest :: Handler [T.Text]
@@ -193,8 +193,8 @@ recipesList repoLock branch = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     return $ RecipesListResponse recipes 0 0 (length recipes)
   where
     caseInsensitive a b = T.toCaseFold a `compare` T.toCaseFold b
-    handleGitErrors :: GitError -> ServantErr
-    handleGitErrors e = createApiError err500 "recipes_list" ("Git Error: " ++ show e)
+    -- handleGitErrors :: GitError -> ServantErr
+    -- handleGitErrors e = createApiError err500 "recipes_list" ("Git Error: " ++ show e)
 
 
 data WorkspaceChanges = WorkspaceChanges {

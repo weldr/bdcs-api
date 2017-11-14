@@ -361,10 +361,10 @@ commitDetails repo revwalk branch filename details next_id = do
 
         -- XXX No Idea How To Convert These Yet
         datetime <- Git.signatureGetTime sig >>= maybeThrow GetTimeError
-        timezone <- Git.signatureGetTimeZone sig >>= maybeThrow GetTimeZoneError
+        -- timezone <- Git.signatureGetTimeZone sig >>= maybeThrow GetTimeZoneError
         -- What do you do with the TimeZone?
         timeval <- GLib.newZeroTimeVal
-        ok <- GLib.dateTimeToTimeval datetime timeval
+        _ok <- GLib.dateTimeToTimeval datetime timeval
         -- XXX Handle error (ok == False)
         time_str <- GLib.timeValToIso8601 timeval
 
