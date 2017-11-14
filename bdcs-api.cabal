@@ -33,7 +33,6 @@ library
                         concurrent-extra,
                         cond,
                         directory,
-                        either,
                         filepath,
                         gi-gio,
                         gi-ggit,
@@ -41,7 +40,6 @@ library
                         haskell-gi-base,
                         http-types,
                         htoml,
-                        memory < 0.14.6,
                         monad-logger,
                         monad-loops,
                         mtl,
@@ -54,11 +52,8 @@ library
                         string-conversions,
                         temporary,
                         text,
-                        time,
-                        transformers,
                         wai,
                         wai-cors,
-                        wai-extra,
                         warp
     hs-source-dirs:     src
     default-language:   Haskell2010
@@ -85,7 +80,6 @@ test-suite spec
                         bytestring,
                         hspec,
                         http-client,
-                        http-types,
                         servant-client,
                         servant-server,
                         string-qq,
