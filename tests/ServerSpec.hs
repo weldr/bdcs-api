@@ -196,10 +196,10 @@ spec =
 withClient :: IO Application -> SpecWith ClientEnv -> SpecWith ()
 withClient x innerSpec =
     beforeAll (newManager defaultManagerSettings) $
-        flip aroundWith innerSpec $ \action manager ->
+        flip aroundWith innerSpec $ \action mgr ->
             testWithApplication x $ \port -> do
-                let baseUrl = BaseUrl Http "localhost" port ""
-                action (ClientEnv manager baseUrl)
+                let base = BaseUrl Http "localhost" port ""
+                action (ClientEnv mgr base)
 
 type Host = (Manager, BaseUrl)
 

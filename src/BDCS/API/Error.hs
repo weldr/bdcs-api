@@ -26,10 +26,10 @@ import           Servant hiding (Header)
 import           Text.Printf(printf)
 
 createApiError :: ServantErr -> String -> String -> ServantErr
-createApiError base id message = base { errBody=apiError, errHeaders=[jsonContentHdr] }
+createApiError base apiId message = base { errBody=apiError, errHeaders=[jsonContentHdr] }
   where
     apiError :: C8.ByteString
-    apiError = C8.pack $ "{ \"id\":\"" ++ id ++ "\", \"message\":\"" ++ message ++ "\" }"
+    apiError = C8.pack $ "{ \"id\":\"" ++ apiId ++ "\", \"message\":\"" ++ message ++ "\" }"
 
     jsonContentHdr :: Header
     jsonContentHdr = ("Content-Type", "application/json")

@@ -86,8 +86,8 @@ parseRecipe xs =
     case parseTomlDoc "" xs of
         Left err    -> Left ("Parsing TOML document failed. " ++ show err)
         Right table -> do
-            let json = toJSON table
-            case (fromJSON json :: Result Recipe) of
+            let jsonValue = toJSON table
+            case (fromJSON jsonValue :: Result Recipe) of
                 Error err -> Left ("Converting from JSON to Recipe failed. " ++ show err)
                 Success r -> Right r
 
