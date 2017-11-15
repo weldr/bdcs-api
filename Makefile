@@ -6,7 +6,7 @@ sandbox:
 	[ -d .cabal-sandbox ] || cabal sandbox init
 
 bdcs-api-server: sandbox
-	cabal sandbox add-source /bdcs/importer
+	cabal sandbox add-source /bdcs/src
 	cabal update
 	cabal install --dependencies-only
 	cabal configure
@@ -21,7 +21,7 @@ hlint: sandbox
 	cabal exec hlint .
 
 tests: sandbox
-	cabal sandbox add-source /bdcs/importer
+	cabal sandbox add-source /bdcs/src
 	cabal install --dependencies-only --enable-tests
 	cabal configure --enable-tests --enable-coverage
 	cabal build
