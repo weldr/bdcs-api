@@ -51,6 +51,7 @@ import           BDCS.API.Workspace
 import           Control.Conditional(ifM, whenM)
 import           Control.Exception
 import           Control.Monad(filterM, unless, void)
+import           Control.Monad.IO.Class(MonadIO)
 import           Control.Monad.Loops(allM)
 import           Data.Aeson(FromJSON(..), ToJSON(..), (.=), (.:), object, withObject)
 import qualified Data.ByteString as BS
@@ -360,17 +361,37 @@ commitDetails repo revwalk branch filename details next_id = do
         commit_str <- Git.oIdToString commit_id >>= maybeThrow OIdError
         sig <- Git.commitGetCommitter commit_obj >>= maybeThrow GetCommitterError
 
-        -- XXX No Idea How To Convert These Yet
-        datetime <- Git.signatureGetTime sig >>= maybeThrow GetTimeError
-        -- timezone <- Git.signatureGetTimeZone sig >>= maybeThrow GetTimeZoneError
-        -- What do you do with the TimeZone?
-        timeval <- GLib.newZeroTimeVal
-        _ok <- GLib.dateTimeToTimeval datetime timeval
-        -- XXX Handle error (ok == False)
-        time_str <- GLib.timeValToIso8601 timeval
+        time_str <- Git.signatureGetTime sig >>= maybeThrow GetTimeError >>= formatDateTime
 
         let commit = CommitDetails {cdCommit=commit_str, cdTime=time_str, cdMessage=message, cdRevision=revision}
         commitDetails repo revwalk branch filename (commit:details) mnext_id
+
+    formatDateTime :: MonadIO m => GLib.DateTime -> m T.Text
+    formatDateTime datetime = do
+        -- convert the datetime to UTC
+        utctime <- GLib.dateTimeToUtc datetime
+
+        -- Here are two other obvious ways of
+        -- Pull the values out of the datetime directly instead of converting
+        -- to a timeval, because
+        --   1) converting to/from a timeval can fail (!!)
+        --   2) the annotations for g_date_time_to_timeval are busted so
+        --      the binding ends up relying on side effects
+        --
+        -- g_date_time_format doesn't cut it either, since it can't print microseconds
+        year   <- GLib.dateTimeGetYear        utctime
+        month  <- GLib.dateTimeGetMonth       utctime
+        day    <- GLib.dateTimeGetDayOfMonth  utctime
+        hour   <- GLib.dateTimeGetHour        utctime
+        minute <- GLib.dateTimeGetMinute      utctime
+        second <- GLib.dateTimeGetSecond      utctime
+        micro  <- GLib.dateTimeGetMicrosecond utctime
+
+        -- Print it out in the same format as g_time_val_to_iso8601
+        let secondsStr = (if (micro /= 0) then printf "%02d.%06d" second micro
+                                         else printf "%02d" second) :: String
+
+        return $ T.pack $ printf "%d-%02d-%02dT%02d:%02d:%sZ" year month day hour minute secondsStr
 
 -- | Determine if there were changes between this commit and its parent
 --
