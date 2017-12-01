@@ -46,7 +46,6 @@ import           BDCS.DB
 import           BDCS.Depclose(depclose)
 import           BDCS.Depsolve(formulaToCNF, solveCNF)
 import           BDCS.Groups(groupIdToNevra)
-import           Utils.Monad(mapMaybeM)
 import           BDCS.Projects(findProject, getProject)
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import qualified Control.Exception as CE
@@ -57,7 +56,9 @@ import           Data.Maybe(fromJust, fromMaybe)
 import qualified Data.Text as T
 import           Database.Persist.Sql
 import           Data.GI.Base(GError(..))
+import qualified GI.Ggit as Git
 import           Servant
+import           Utils.Monad(mapMaybeM)
 
 
 {-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
@@ -106,6 +107,7 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
                                      :> QueryParam "offset" Int
                                      :> QueryParam "limit" Int :> Get '[JSON] RecipesChangesResponse
         :<|> "recipes"  :> "new" :> ReqBody '[JSON, TOML] Recipe :> Post '[JSON] RecipesNewResponse
+        :<|> "recipes"  :> "delete" :> Capture "recipe" String :> Delete '[JSON] RecipesDeleteResponse
 
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
@@ -115,6 +117,7 @@ v0ApiServer repoLock pool = pkgInfoH
                        :<|> recipesInfoH
                        :<|> recipesChangesH
                        :<|> recipesNewH
+                       :<|> recipesDeleteH
   where
     pkgInfoH package     = liftIO $ packageInfo pool package
     depsolvePkgH package = liftIO $ depsolvePkg pool package
@@ -123,6 +126,7 @@ v0ApiServer repoLock pool = pkgInfoH
     recipesInfoH recipes = recipesInfo repoLock "master" recipes
     recipesChangesH recipes offset limit = recipesChanges repoLock "master" recipes offset limit
     recipesNewH recipe   = recipesNew repoLock "master" recipe
+    recipesDeleteH recipe= recipesDelete repoLock "master" recipe
 
 packageInfo :: ConnectionPool -> T.Text -> IO PackageInfo
 packageInfo pool package = flip runSqlPersistMPool pool $ do
@@ -360,10 +364,6 @@ recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock re
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- | * `/api/v0/recipes/freeze/<recipes>`
--- |  - Return the contents of the recipe with frozen dependencies instead of expressions.
--- |  - [Example JSON](fn.recipes_freeze.html#examples)
-
 data RecipeChanges = RecipeChanges {
     rcName      :: T.Text,
     rcChange    :: [CommitDetails],
@@ -531,6 +531,38 @@ recipesNew repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock)
     oid <- commitRecipe (gitRepo repoLock) branch recipe
     return $ RecipesNewResponse True
 
+
+data RecipesDeleteResponse = RecipesDeleteResponse {
+    rdrStatus :: Bool,
+    rdrErrors :: [RecipesAPIError]
+} deriving (Show, Eq)
+
+instance ToJSON RecipesDeleteResponse where
+  toJSON RecipesDeleteResponse{..} = object [
+      "status" .= rdrStatus
+    , "errors" .= rdrErrors ]
+
+instance FromJSON RecipesDeleteResponse where
+  parseJSON = withObject "/recipes/delete response" $ \o -> do
+    rdrStatus <- o .: "status"
+    rdrErrors <- o .: "errors"
+    return RecipesDeleteResponse{..}
+
+-- | DELETE /api/v0/recipes/delete/<recipe>
+-- Delete the named recipe from the repository
+recipesDelete :: GitLock -> T.Text -> String -> Handler RecipesDeleteResponse
+recipesDelete repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+    result <- catch_recipe_delete
+    case result of
+        Left err -> return $ RecipesDeleteResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
+        Right _  -> return $ RecipesDeleteResponse True []
+  where
+    catch_recipe_delete :: IO (Either String Git.OId)
+    catch_recipe_delete =
+        CE.catches (Right <$> deleteRecipe (gitRepo repoLock) branch (T.pack recipe_name))
+                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
+                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+
 -- | * `/api/v0/recipes/freeze/<recipes>`
 -- |  - Return the contents of the recipe with frozen dependencies instead of expressions.
 -- |  - [Example JSON](fn.recipes_freeze.html#examples)
@@ -540,9 +572,6 @@ recipesNew repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock)
 -- | * `/api/v0/recipes/depsolve/<recipes>`
 -- |  - Return the recipe and summary information about all of its modules and packages.
 -- |  - [Example JSON](fn.recipes_depsolve.html#examples)
--- | * DELETE `/api/v0/recipes/delete/<recipe>`
--- |  - Delete the named recipe from the repository
--- |  - [Example JSON](fn.recipes_delete.html#examples)
 -- | * POST `/api/v0/recipes/undo/<recipe>/<commit>`
 -- |  - Revert a recipe to a previous commit
 -- |  - [Example JSON](fn.recipes_undo.html#examples)
