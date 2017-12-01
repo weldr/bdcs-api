@@ -199,6 +199,32 @@ recipesChangesTest3 = do
     total_ok response = rcTotal (rcrRecipes response !! 0) == 5
 
 
+-- | Check that deleting a recipe removes it from the list
+recipesDeleteTest :: ClientM Bool
+recipesDeleteTest = do
+    result_1 <- recipe_in_list
+    result_2 <- delete_recipe
+    result_3 <- recipe_not_in_list
+    return $ result_1 && result_2 && result_3
+  where
+    -- Is the recipe in the list?
+    recipe_in_list :: ClientM Bool
+    recipe_in_list = do
+        response <- getRecipes
+        return $ "A-Test-Recipe" `elem` rlrRecipes response
+
+    -- Delete it from the list
+    delete_recipe :: ClientM Bool
+    delete_recipe = do
+        response <- deleteRecipes "A Test Recipe"
+        return $ rdrStatus response
+
+    -- Is it NOT in the list?
+    recipe_not_in_list = do
+        response <- getRecipes
+        return $ "A-Test-Recipe" `notElem` rlrRecipes response
+
+
 -- | Setup the temporary repo directory with some example recipes
 --
 -- If the directory exists it is first removed.
@@ -261,6 +287,9 @@ spec = do
 
             it "Check offset and limit usage" $ \env ->
                 try env recipesChangesTest3 `shouldReturn` True
+
+            it "Check delete recipe" $ \env ->
+                try env recipesDeleteTest `shouldReturn` True
 
     describe "cleanup" $
         it "Remove the temporary directory" $
