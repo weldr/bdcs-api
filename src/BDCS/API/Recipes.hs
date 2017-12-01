@@ -27,6 +27,7 @@ module BDCS.API.Recipes(openOrCreateRepo,
                         listBranchFiles,
                         listCommitFiles,
                         deleteFile,
+                        deleteRecipe,
                         revertFile,
                         revertFileCommit,
                         listRecipeCommits,
@@ -252,6 +253,9 @@ listCommitFiles repo commit = do
     tree <- Git.repositoryLookupTree repo parent_tree_id >>= maybeThrow LookupTreeError
     sz <- Git.treeSize tree
     getFilenames tree sz
+
+deleteRecipe :: Git.Repository -> T.Text -> T.Text -> IO Git.OId
+deleteRecipe repo branch recipe_name = deleteFile repo branch (recipeTomlFilename $ T.unpack recipe_name)
 
 deleteFile :: Git.Repository -> T.Text -> T.Text -> IO Git.OId
 deleteFile repo branch filename = do
@@ -670,7 +674,7 @@ testGitRepo tmpdir = do
 
     -- delete http-server.toml file
     putStrLn "    - Delete the http-server.toml file"
-    void $ deleteFile repo "master" "http-server.toml"
+    void $ deleteRecipe repo "master" "http-server"
 
     -- List the files on master
     putStrLn "    - Check that http-server.toml has been deleted"
