@@ -23,7 +23,8 @@ import           BDCS.API.Recipe(Recipe(..), RecipeModule(..))
 import           BDCS.API.Server
 import           BDCS.API.V0
 import           Control.Conditional(whenM)
-import           Control.Exception (throwIO)
+import           Control.Exception(throwIO)
+import           Control.Monad.Loops(allM)
 import           Data.List(isSuffixOf)
 import qualified Data.Text as T
 import           Network.HTTP.Client (Manager, newManager, defaultManagerSettings)
@@ -34,6 +35,7 @@ import           Servant.Client
 import           System.Directory(copyFileWithMetadata, createDirectoryIfMissing, doesPathExist,
                                   listDirectory, removeDirectoryRecursive)
 import           System.FilePath.Posix((</>))
+import           Text.Printf(printf)
 import           Test.Hspec
 
 {-# ANN module ("HLint: ignore Reduce duplication"  :: String) #-}
@@ -49,9 +51,10 @@ getRecipes :: ClientM RecipesListResponse
 getRecipesInfo :: String -> ClientM RecipesInfoResponse
 getRecipesChanges :: String -> Maybe Int -> Maybe Int -> ClientM RecipesChangesResponse
 postRecipesNew :: Recipe -> ClientM RecipesNewResponse
+deleteRecipes :: String -> ClientM RecipesDeleteResponse
 getStatus :<|> getPackage :<|> getDeps :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
-          :<|> postRecipesNew = client proxyAPI
+          :<|> postRecipesNew :<|> deleteRecipes = client proxyAPI
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.
@@ -117,13 +120,25 @@ errorRecipeResponse =
                         [RecipesAPIError "missing-recipe" "missing-recipe.toml is not present on branch master"]
 
 recipesNewResponse :: RecipesNewResponse
-recipesNewResponse = RecipesNewResponse True
+recipesNewResponse = RecipesNewResponse True []
 
 aTestRecipe :: Recipe
 aTestRecipe = Recipe "A Test Recipe" (Just "0.0.1") "A simple recipe to use for testing"
                      [RecipeModule "rsync" "3.0.*"]
                      [RecipeModule "httpd" "2.4.*"]
 
+-- Post 10 changes to the test recipe
+postMultipleChanges :: ClientM Bool
+postMultipleChanges = allM newVersion [0..10]
+  where
+    newVersion :: Integer -> ClientM Bool
+    newVersion patch = status_ok <$> postRecipesNew aTestRecipe {rVersion = Just $ patchedVersion patch}
+
+    patchedVersion :: Integer -> String
+    patchedVersion = printf "0.1.%d"
+
+    status_ok :: RecipesNewResponse -> Bool
+    status_ok = rnrStatus
 
 -- If it has 0 errors, 1 change named http-server, 0 offset and a limit of 20 it passes
 recipesChangesTest1 :: ClientM Bool
@@ -162,26 +177,37 @@ recipesChangesTest2 = do
     limits_ok :: RecipesChangesResponse -> Bool
     limits_ok response = rcrOffset response == 0 && rcrLimit response == 20
 
--- Check that limit and offset are parsed
--- XXX After /recipes/new has been added this will be used to test it more extensively
+-- | Check that limit and offset are parsed correctly
+--
+-- This must be called after posting > 10 changes to the recipe
 recipesChangesTest3 :: ClientM Bool
 recipesChangesTest3 = do
-    response <- getRecipesChanges "http-server" (Just 15) (Just 5)
-    return $ limits_ok response
+    response <- getRecipesChanges "A Test Recipe" (Just 5) (Just 5)
+    return $ limits_ok response && length_ok response && name_ok response && total_ok response
   where
     limits_ok :: RecipesChangesResponse -> Bool
-    limits_ok response = rcrOffset response == 15 && rcrLimit response == 5
+    limits_ok response = rcrOffset response == 5 && rcrLimit response == 5
+
+    -- Should only be 1 recipe in the response
+    length_ok :: RecipesChangesResponse -> Bool
+    length_ok response = length (rcrRecipes response) == 1
+
+    name_ok :: RecipesChangesResponse -> Bool
+    name_ok response = rcName (rcrRecipes response !! 0) == "A Test Recipe"
+
+    total_ok :: RecipesChangesResponse -> Bool
+    total_ok response = rcTotal (rcrRecipes response !! 0) == 5
 
 
--- | Start the app in a temporary directory for the recipes
+-- | Setup the temporary repo directory with some example recipes
 --
--- First copy the example recipes into the temporary directory
-runTempApp :: FilePath -> FilePath -> FilePath -> IO Application
-runTempApp exampleRecipes gitRepoPath sqliteDbPath = do
-        whenM (doesPathExist gitRepoPath) $ removeDirectoryRecursive gitRepoPath
+-- If the directory exists it is first removed.
+-- Then example recipes are copied into it
+setupTempRepoDir :: FilePath -> FilePath -> IO ()
+setupTempRepoDir exampleRecipes gitRepoPath = do
+        whenM (doesPathExist gitRepoPath) (removeDirectoryRecursive gitRepoPath)
         createDirectoryIfMissing True gitRepoPath
         copyTOMLFiles exampleRecipes gitRepoPath
-        mkApp gitRepoPath sqliteDbPath
   where
     -- Copy files ending with .toml from one directory to another
     copyTOMLFiles :: FilePath -> FilePath -> IO ()
@@ -192,14 +218,15 @@ runTempApp exampleRecipes gitRepoPath sqliteDbPath = do
         mapM_ (\(from, to) -> copyFileWithMetadata from to) $ zip fromFiles toFiles
 
 
--- XXX NOTE that the results tested here depend on the Recipes tests having been run
--- Spec executes things in alphabetical order, so currently this is true.
--- After /recipes/new is added this can be changed and it can depend on commits made
--- via the API instead of directly.
 spec :: Spec
 spec = do
+    describe "Setup" $
+        it "Setup the temporary test directory" $
+            setupTempRepoDir "./tests/recipes/" "/var/tmp/bdcs-tmp-recipes/"
+
     describe "/api" $
-        withClient (runTempApp "./tests/recipes/" "/var/tmp/bdcs-tmp-recipes/" "/var/tmp/test-bdcs.db") $ do
+        -- NOTE that mkApp is executed for EACH of the 'it' sections
+        withClient (mkApp "/var/tmp/bdcs-tmp-recipes/" "/var/tmp/test-bdcs.db") $ do
             it "API Status" $ \env ->
                 try env getStatus `shouldReturn` ServerStatus "0.0.0" "0" "0" False
 
@@ -220,11 +247,17 @@ spec = do
             it "Post a test recipe" $ \env ->
                 try env (postRecipesNew aTestRecipe) `shouldReturn` recipesNewResponse
 
+            it "Post several changes to test recipe" $ \env ->
+                try env postMultipleChanges `shouldReturn` True
+
             it "Get changes to http-server recipe" $ \env ->
                 try env recipesChangesTest1 `shouldReturn` True
 
             it "Get changes to http-server and glusterfs recipes" $ \env ->
                 try env recipesChangesTest2 `shouldReturn` True
+
+--            it "blah blah" $ \env ->
+--                try env (getRecipesChanges "A Test Recipe" (Just 5) (Just 5)) `shouldReturn` RecipesChangesResponse [] [] 0 0
 
             it "Check offset and limit usage" $ \env ->
                 try env recipesChangesTest3 `shouldReturn` True

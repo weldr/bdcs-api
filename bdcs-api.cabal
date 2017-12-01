@@ -85,6 +85,7 @@ test-suite spec
                         filepath,
                         hspec,
                         http-client,
+                        monad-loops,
                         servant-client,
                         servant-server,
                         string-conversions,
