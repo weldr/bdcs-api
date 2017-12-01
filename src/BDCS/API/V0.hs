@@ -507,18 +507,20 @@ recipesChanges repoLock branch recipe_names moffset mlimit = liftIO $ RWL.withRe
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- TOOD Add error message?
 data RecipesNewResponse = RecipesNewResponse {
-    rnrStatus :: Bool
+    rnrStatus :: Bool,
+    rnrErrors :: [RecipesAPIError]
 } deriving (Show, Eq)
 
 instance ToJSON RecipesNewResponse where
   toJSON RecipesNewResponse{..} = object [
-      "status" .= rnrStatus ]
+      "status" .= rnrStatus
+    , "errors" .= rnrErrors ]
 
 instance FromJSON RecipesNewResponse where
   parseJSON = withObject "/recipes/new response" $ \o -> do
     rnrStatus <- o .: "status"
+    rnrErrors <- o .: "errors"
     return RecipesNewResponse{..}
 
 -- | POST `/api/v0/recipes/new`
@@ -528,8 +530,16 @@ instance FromJSON RecipesNewResponse where
 -- received by `/api/v0/recipes/info/<recipes>`
 recipesNew :: GitLock -> T.Text -> Recipe -> Handler RecipesNewResponse
 recipesNew repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
-    oid <- commitRecipe (gitRepo repoLock) branch recipe
-    return $ RecipesNewResponse True
+    result <- catch_recipe_new
+    case result of
+        Left err -> return $ RecipesNewResponse False [RecipesAPIError "Unknown" (T.pack err)]
+        Right _  -> return $ RecipesNewResponse True []
+  where
+    catch_recipe_new :: IO (Either String Git.OId)
+    catch_recipe_new =
+        CE.catches (Right <$> commitRecipe (gitRepo repoLock) branch recipe)
+                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
+                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
 data RecipesDeleteResponse = RecipesDeleteResponse {
