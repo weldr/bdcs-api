@@ -54,9 +54,11 @@ getRecipesChanges :: String -> Maybe Int -> Maybe Int -> ClientM RecipesChangesR
 postRecipesNew :: Recipe -> ClientM RecipesStatusResponse
 deleteRecipes :: String -> ClientM RecipesStatusResponse
 postRecipesUndo :: String -> String -> ClientM RecipesStatusResponse
+postRecipesWorkspace :: Recipe -> ClientM RecipesStatusResponse
 getStatus :<|> getPackage :<|> getDeps :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
-          :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo = client proxyAPI
+          :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo
+          :<|> postRecipesWorkspace = client proxyAPI
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.
@@ -236,6 +238,13 @@ recipesUndoTest = do
     -- Revert to a previous commit
     rsrStatus <$> postRecipesUndo "A Test Recipe" (T.unpack commit)
 
+-- | Check that writing to the workspace storage works
+recipesWorkspaceTest :: ClientM Bool
+recipesWorkspaceTest = status_ok <$> postRecipesNew aTestRecipe {rDescription = "A workspace only recipe"}
+  where
+    status_ok :: RecipesStatusResponse -> Bool
+    status_ok = rsrStatus
+
 -- | Setup the temporary repo directory with some example recipes
 --
 -- If the directory exists it is first removed.
@@ -304,6 +313,9 @@ spec = do
 
             it "Undo the recipe delete" $ \env ->
                 try env recipesUndoTest `shouldReturn` True
+
+            it "Write a recipe to the workspace" $ \env ->
+                try env recipesWorkspaceTest `shouldReturn` True
 
     describe "cleanup" $
         it "Remove the temporary directory" $

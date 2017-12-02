@@ -110,6 +110,7 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
         :<|> "recipes"  :> "delete" :> Capture "recipe" String :> Delete '[JSON] RecipesStatusResponse
         :<|> "recipes"  :> "undo" :> Capture "recipe" String
                                   :> Capture "commit" String :> Post '[JSON] RecipesStatusResponse
+        :<|> "recipes"  :> "workspace" :> ReqBody '[JSON, TOML] Recipe :> Post '[JSON] RecipesStatusResponse
 
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
@@ -121,6 +122,7 @@ v0ApiServer repoLock pool = pkgInfoH
                        :<|> recipesNewH
                        :<|> recipesDeleteH
                        :<|> recipesUndoH
+                       :<|> recipesWorkspaceH
   where
     pkgInfoH package     = liftIO $ packageInfo pool package
     depsolvePkgH package = liftIO $ depsolvePkg pool package
@@ -131,6 +133,7 @@ v0ApiServer repoLock pool = pkgInfoH
     recipesNewH recipe   = recipesNew repoLock "master" recipe
     recipesDeleteH recipe= recipesDelete repoLock "master" recipe
     recipesUndoH recipe commit = recipesUndo repoLock "master" recipe commit
+    recipesWorkspaceH recipe   = recipesWorkspace repoLock "master" recipe
 
 packageInfo :: ConnectionPool -> T.Text -> IO PackageInfo
 packageInfo pool package = flip runSqlPersistMPool pool $ do
@@ -583,6 +586,19 @@ recipesUndo repoLock branch recipe_name commit = liftIO $ RWL.withRead (gitRepoL
 --
 -- - The body of the post is a JSON representation of the recipe, using the same format
 --   received by `/api/v0/recipes/info/<recipes>` and `/api/v0/recipes/new`
+recipesWorkspace :: GitLock -> T.Text -> Recipe -> Handler RecipesStatusResponse
+recipesWorkspace repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+    result <- catch_recipe_ws
+    case result of
+        Left err -> return $ RecipesStatusResponse False [RecipesAPIError "Unknown" (T.pack err)]
+        Right _  -> return $ RecipesStatusResponse True []
+  where
+    catch_recipe_ws :: IO (Either String ())
+    catch_recipe_ws =
+        CE.catches (Right <$> workspaceWrite (gitRepo repoLock) branch recipe)
+                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
+                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+
 
 -- | * `/api/v0/recipes/freeze/<recipes>`
 -- |  - Return the contents of the recipe with frozen dependencies instead of expressions.
