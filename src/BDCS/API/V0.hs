@@ -30,6 +30,7 @@ module BDCS.API.V0(PackageInfo(..),
                    RecipesChangesResponse(..),
                    RecipesNewResponse(..),
                    RecipesDeleteResponse(..),
+                   RecipesUndoResponse(..),
                    RecipesAPIError(..),
                    RecipeChanges(..),
                    WorkspaceChanges(..),
@@ -109,6 +110,8 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
                                      :> QueryParam "limit" Int :> Get '[JSON] RecipesChangesResponse
         :<|> "recipes"  :> "new" :> ReqBody '[JSON, TOML] Recipe :> Post '[JSON] RecipesNewResponse
         :<|> "recipes"  :> "delete" :> Capture "recipe" String :> Delete '[JSON] RecipesDeleteResponse
+        :<|> "recipes"  :> "undo" :> Capture "recipe" String
+                                  :> Capture "commit" String :> Post '[JSON] RecipesUndoResponse
 
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
@@ -119,6 +122,7 @@ v0ApiServer repoLock pool = pkgInfoH
                        :<|> recipesChangesH
                        :<|> recipesNewH
                        :<|> recipesDeleteH
+                       :<|> recipesUndoH
   where
     pkgInfoH package     = liftIO $ packageInfo pool package
     depsolvePkgH package = liftIO $ depsolvePkg pool package
@@ -128,6 +132,7 @@ v0ApiServer repoLock pool = pkgInfoH
     recipesChangesH recipes offset limit = recipesChanges repoLock "master" recipes offset limit
     recipesNewH recipe   = recipesNew repoLock "master" recipe
     recipesDeleteH recipe= recipesDelete repoLock "master" recipe
+    recipesUndoH recipe commit = recipesUndo repoLock "master" recipe commit
 
 packageInfo :: ConnectionPool -> T.Text -> IO PackageInfo
 packageInfo pool package = flip runSqlPersistMPool pool $ do
@@ -574,6 +579,39 @@ recipesDelete repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock r
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
+
+data RecipesUndoResponse = RecipesUndoResponse {
+    rurStatus :: Bool,
+    rurErrors :: [RecipesAPIError]
+} deriving (Show, Eq)
+
+instance ToJSON RecipesUndoResponse where
+  toJSON RecipesUndoResponse{..} = object [
+      "status" .= rurStatus
+    , "errors" .= rurErrors ]
+
+instance FromJSON RecipesUndoResponse where
+  parseJSON = withObject "/recipes/undo response" $ \o -> do
+    rurStatus <- o .: "status"
+    rurErrors <- o .: "errors"
+    return RecipesUndoResponse{..}
+
+-- | POST /api/v0/recipes/undo/<recipe>/<commit>
+-- Revert a recipe to a previous commit
+recipesUndo :: GitLock -> T.Text -> String -> String -> Handler RecipesUndoResponse
+recipesUndo repoLock branch recipe_name commit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+    result <- catch_recipe_undo
+    case result of
+        Left err -> return $ RecipesUndoResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
+        Right _  -> return $ RecipesUndoResponse True []
+  where
+    catch_recipe_undo :: IO (Either String Git.OId)
+    catch_recipe_undo =
+        CE.catches (Right <$> revertRecipe (gitRepo repoLock) branch (T.pack recipe_name) (T.pack commit))
+                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
+                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+
+
 -- | * `/api/v0/recipes/freeze/<recipes>`
 -- |  - Return the contents of the recipe with frozen dependencies instead of expressions.
 -- |  - [Example JSON](fn.recipes_freeze.html#examples)
@@ -583,9 +621,6 @@ recipesDelete repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock r
 -- | * `/api/v0/recipes/depsolve/<recipes>`
 -- |  - Return the recipe and summary information about all of its modules and packages.
 -- |  - [Example JSON](fn.recipes_depsolve.html#examples)
--- | * POST `/api/v0/recipes/undo/<recipe>/<commit>`
--- |  - Revert a recipe to a previous commit
--- |  - [Example JSON](fn.recipes_undo.html#examples)
 -- | * POST `/api/v0/recipes/workspace`
 -- |  - Update the temporary recipe workspace
 -- |  - The body of the post is a JSON representation of the recipe, using the same format

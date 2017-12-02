@@ -20,6 +20,7 @@ module ServerSpec
   where
 
 import           BDCS.API.Recipe(Recipe(..), RecipeModule(..))
+import           BDCS.API.Recipes(CommitDetails(..))
 import           BDCS.API.Server
 import           BDCS.API.V0
 import           Control.Conditional(whenM)
@@ -52,9 +53,10 @@ getRecipesInfo :: String -> ClientM RecipesInfoResponse
 getRecipesChanges :: String -> Maybe Int -> Maybe Int -> ClientM RecipesChangesResponse
 postRecipesNew :: Recipe -> ClientM RecipesNewResponse
 deleteRecipes :: String -> ClientM RecipesDeleteResponse
+postRecipesUndo :: String -> String -> ClientM RecipesUndoResponse
 getStatus :<|> getPackage :<|> getDeps :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
-          :<|> postRecipesNew :<|> deleteRecipes = client proxyAPI
+          :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo = client proxyAPI
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.
@@ -224,6 +226,15 @@ recipesDeleteTest = do
         response <- getRecipes
         return $ "A-Test-Recipe" `notElem` rlrRecipes response
 
+-- | Check reverting a recipe to a previous commit
+recipesUndoTest :: ClientM Bool
+recipesUndoTest = do
+    -- Get a list of the commits
+    response_1 <- getRecipesChanges "A Test Recipe" Nothing Nothing
+    let commit = cdCommit (rcChange (rcrRecipes response_1 !! 0) !! 1)
+
+    -- Revert to a previous commit
+    rurStatus <$> postRecipesUndo "A Test Recipe" (T.unpack commit)
 
 -- | Setup the temporary repo directory with some example recipes
 --
@@ -290,6 +301,9 @@ spec = do
 
             it "Check delete recipe" $ \env ->
                 try env recipesDeleteTest `shouldReturn` True
+
+            it "Undo the recipe delete" $ \env ->
+                try env recipesUndoTest `shouldReturn` True
 
     describe "cleanup" $
         it "Remove the temporary directory" $

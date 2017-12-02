@@ -30,6 +30,7 @@ module BDCS.API.Recipes(openOrCreateRepo,
                         deleteRecipe,
                         revertFile,
                         revertFileCommit,
+                        revertRecipe,
                         listRecipeCommits,
                         listCommits,
                         findCommitTag,
@@ -268,6 +269,9 @@ deleteFile repo branch filename = do
     (tree, sig, ref, encoding) <- prepareCommit repo branch builder
     let message = T.pack $ printf "Recipe %s deleted" filename
     Git.repositoryCreateCommit repo ref sig sig encoding message tree [parent_commit] >>= maybeThrow  CreateCommitError
+
+revertRecipe :: Git.Repository -> T.Text -> T.Text -> T.Text -> IO Git.OId
+revertRecipe repo branch recipe_name commit = revertFile repo branch (recipeTomlFilename $ T.unpack recipe_name) commit
 
 revertFile :: Git.Repository -> T.Text -> T.Text -> T.Text -> IO Git.OId
 revertFile repo branch filename commit = do
