@@ -51,9 +51,9 @@ getErr :: ClientM [T.Text]
 getRecipes :: ClientM RecipesListResponse
 getRecipesInfo :: String -> ClientM RecipesInfoResponse
 getRecipesChanges :: String -> Maybe Int -> Maybe Int -> ClientM RecipesChangesResponse
-postRecipesNew :: Recipe -> ClientM RecipesNewResponse
-deleteRecipes :: String -> ClientM RecipesDeleteResponse
-postRecipesUndo :: String -> String -> ClientM RecipesUndoResponse
+postRecipesNew :: Recipe -> ClientM RecipesStatusResponse
+deleteRecipes :: String -> ClientM RecipesStatusResponse
+postRecipesUndo :: String -> String -> ClientM RecipesStatusResponse
 getStatus :<|> getPackage :<|> getDeps :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
           :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo = client proxyAPI
@@ -121,8 +121,8 @@ errorRecipeResponse =
                         ]
                         [RecipesAPIError "missing-recipe" "missing-recipe.toml is not present on branch master"]
 
-recipesNewResponse :: RecipesNewResponse
-recipesNewResponse = RecipesNewResponse True []
+recipesNewResponse :: RecipesStatusResponse
+recipesNewResponse = RecipesStatusResponse True []
 
 aTestRecipe :: Recipe
 aTestRecipe = Recipe "A Test Recipe" (Just "0.0.1") "A simple recipe to use for testing"
@@ -139,8 +139,8 @@ postMultipleChanges = allM newVersion [0..10]
     patchedVersion :: Integer -> String
     patchedVersion = printf "0.1.%d"
 
-    status_ok :: RecipesNewResponse -> Bool
-    status_ok = rnrStatus
+    status_ok :: RecipesStatusResponse -> Bool
+    status_ok = rsrStatus
 
 -- If it has 0 errors, 1 change named http-server, 0 offset and a limit of 20 it passes
 recipesChangesTest1 :: ClientM Bool
@@ -219,7 +219,7 @@ recipesDeleteTest = do
     delete_recipe :: ClientM Bool
     delete_recipe = do
         response <- deleteRecipes "A Test Recipe"
-        return $ rdrStatus response
+        return $ rsrStatus response
 
     -- Is it NOT in the list?
     recipe_not_in_list = do
@@ -234,7 +234,7 @@ recipesUndoTest = do
     let commit = cdCommit (rcChange (rcrRecipes response_1 !! 0) !! 1)
 
     -- Revert to a previous commit
-    rurStatus <$> postRecipesUndo "A Test Recipe" (T.unpack commit)
+    rsrStatus <$> postRecipesUndo "A Test Recipe" (T.unpack commit)
 
 -- | Setup the temporary repo directory with some example recipes
 --

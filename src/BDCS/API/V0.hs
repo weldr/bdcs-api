@@ -28,9 +28,7 @@ module BDCS.API.V0(PackageInfo(..),
                    RecipesListResponse(..),
                    RecipesInfoResponse(..),
                    RecipesChangesResponse(..),
-                   RecipesNewResponse(..),
-                   RecipesDeleteResponse(..),
-                   RecipesUndoResponse(..),
+                   RecipesStatusResponse(..),
                    RecipesAPIError(..),
                    RecipeChanges(..),
                    WorkspaceChanges(..),
@@ -108,10 +106,10 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
         :<|> "recipes"  :> "changes" :> Capture "recipes" String
                                      :> QueryParam "offset" Int
                                      :> QueryParam "limit" Int :> Get '[JSON] RecipesChangesResponse
-        :<|> "recipes"  :> "new" :> ReqBody '[JSON, TOML] Recipe :> Post '[JSON] RecipesNewResponse
-        :<|> "recipes"  :> "delete" :> Capture "recipe" String :> Delete '[JSON] RecipesDeleteResponse
+        :<|> "recipes"  :> "new" :> ReqBody '[JSON, TOML] Recipe :> Post '[JSON] RecipesStatusResponse
+        :<|> "recipes"  :> "delete" :> Capture "recipe" String :> Delete '[JSON] RecipesStatusResponse
         :<|> "recipes"  :> "undo" :> Capture "recipe" String
-                                  :> Capture "commit" String :> Post '[JSON] RecipesUndoResponse
+                                  :> Capture "commit" String :> Post '[JSON] RecipesStatusResponse
 
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
@@ -513,33 +511,33 @@ recipesChanges repoLock branch recipe_names moffset mlimit = liftIO $ RWL.withRe
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
-data RecipesNewResponse = RecipesNewResponse {
-    rnrStatus :: Bool,
-    rnrErrors :: [RecipesAPIError]
+data RecipesStatusResponse = RecipesStatusResponse {
+    rsrStatus :: Bool,
+    rsrErrors :: [RecipesAPIError]
 } deriving (Show, Eq)
 
-instance ToJSON RecipesNewResponse where
-  toJSON RecipesNewResponse{..} = object [
-      "status" .= rnrStatus
-    , "errors" .= rnrErrors ]
+instance ToJSON RecipesStatusResponse where
+  toJSON RecipesStatusResponse{..} = object [
+      "status" .= rsrStatus
+    , "errors" .= rsrErrors ]
 
-instance FromJSON RecipesNewResponse where
-  parseJSON = withObject "/recipes/new response" $ \o -> do
-    rnrStatus <- o .: "status"
-    rnrErrors <- o .: "errors"
-    return RecipesNewResponse{..}
+instance FromJSON RecipesStatusResponse where
+  parseJSON = withObject "/recipes/* status response" $ \o -> do
+    rsrStatus <- o .: "status"
+    rsrErrors <- o .: "errors"
+    return RecipesStatusResponse{..}
 
 -- | POST `/api/v0/recipes/new`
 -- Create or update a recipe.
 --
 -- The body of the post is a JSON representation of the recipe, using the same format
 -- received by `/api/v0/recipes/info/<recipes>`
-recipesNew :: GitLock -> T.Text -> Recipe -> Handler RecipesNewResponse
+recipesNew :: GitLock -> T.Text -> Recipe -> Handler RecipesStatusResponse
 recipesNew repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     result <- catch_recipe_new
     case result of
-        Left err -> return $ RecipesNewResponse False [RecipesAPIError "Unknown" (T.pack err)]
-        Right _  -> return $ RecipesNewResponse True []
+        Left err -> return $ RecipesStatusResponse False [RecipesAPIError "Unknown" (T.pack err)]
+        Right _  -> return $ RecipesStatusResponse True []
   where
     catch_recipe_new :: IO (Either String Git.OId)
     catch_recipe_new =
@@ -548,30 +546,14 @@ recipesNew repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock)
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
-data RecipesDeleteResponse = RecipesDeleteResponse {
-    rdrStatus :: Bool,
-    rdrErrors :: [RecipesAPIError]
-} deriving (Show, Eq)
-
-instance ToJSON RecipesDeleteResponse where
-  toJSON RecipesDeleteResponse{..} = object [
-      "status" .= rdrStatus
-    , "errors" .= rdrErrors ]
-
-instance FromJSON RecipesDeleteResponse where
-  parseJSON = withObject "/recipes/delete response" $ \o -> do
-    rdrStatus <- o .: "status"
-    rdrErrors <- o .: "errors"
-    return RecipesDeleteResponse{..}
-
 -- | DELETE /api/v0/recipes/delete/<recipe>
 -- Delete the named recipe from the repository
-recipesDelete :: GitLock -> T.Text -> String -> Handler RecipesDeleteResponse
+recipesDelete :: GitLock -> T.Text -> String -> Handler RecipesStatusResponse
 recipesDelete repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     result <- catch_recipe_delete
     case result of
-        Left err -> return $ RecipesDeleteResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
-        Right _  -> return $ RecipesDeleteResponse True []
+        Left err -> return $ RecipesStatusResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
+        Right _  -> return $ RecipesStatusResponse True []
   where
     catch_recipe_delete :: IO (Either String Git.OId)
     catch_recipe_delete =
@@ -580,30 +562,14 @@ recipesDelete repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock r
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
-data RecipesUndoResponse = RecipesUndoResponse {
-    rurStatus :: Bool,
-    rurErrors :: [RecipesAPIError]
-} deriving (Show, Eq)
-
-instance ToJSON RecipesUndoResponse where
-  toJSON RecipesUndoResponse{..} = object [
-      "status" .= rurStatus
-    , "errors" .= rurErrors ]
-
-instance FromJSON RecipesUndoResponse where
-  parseJSON = withObject "/recipes/undo response" $ \o -> do
-    rurStatus <- o .: "status"
-    rurErrors <- o .: "errors"
-    return RecipesUndoResponse{..}
-
 -- | POST /api/v0/recipes/undo/<recipe>/<commit>
 -- Revert a recipe to a previous commit
-recipesUndo :: GitLock -> T.Text -> String -> String -> Handler RecipesUndoResponse
+recipesUndo :: GitLock -> T.Text -> String -> String -> Handler RecipesStatusResponse
 recipesUndo repoLock branch recipe_name commit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     result <- catch_recipe_undo
     case result of
-        Left err -> return $ RecipesUndoResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
-        Right _  -> return $ RecipesUndoResponse True []
+        Left err -> return $ RecipesStatusResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
+        Right _  -> return $ RecipesStatusResponse True []
   where
     catch_recipe_undo :: IO (Either String Git.OId)
     catch_recipe_undo =
@@ -611,6 +577,12 @@ recipesUndo repoLock branch recipe_name commit = liftIO $ RWL.withRead (gitRepoL
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
+
+-- | POST /api/v0/recipes/workspace
+-- Update the temporary recipe workspace
+--
+-- - The body of the post is a JSON representation of the recipe, using the same format
+--   received by `/api/v0/recipes/info/<recipes>` and `/api/v0/recipes/new`
 
 -- | * `/api/v0/recipes/freeze/<recipes>`
 -- |  - Return the contents of the recipe with frozen dependencies instead of expressions.
@@ -621,11 +593,6 @@ recipesUndo repoLock branch recipe_name commit = liftIO $ RWL.withRead (gitRepoL
 -- | * `/api/v0/recipes/depsolve/<recipes>`
 -- |  - Return the recipe and summary information about all of its modules and packages.
 -- |  - [Example JSON](fn.recipes_depsolve.html#examples)
--- | * POST `/api/v0/recipes/workspace`
--- |  - Update the temporary recipe workspace
--- |  - The body of the post is a JSON representation of the recipe, using the same format
--- |    received by `/api/v0/recipes/info/<recipes>` and `/api/v0/recipes/new`
--- |  - [Example JSON](fn.recipes_workspace.html#examples)
 -- | * POST `/api/v0/recipes/tag/<recipe>`
 -- |  - Tag the most recent recipe commit as the next revision
 -- |  - [Example](fn.recipes_tag.html)
