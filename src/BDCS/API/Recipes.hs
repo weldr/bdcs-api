@@ -36,6 +36,7 @@ module BDCS.API.Recipes(openOrCreateRepo,
                         findCommitTag,
                         getRevisionFromTag,
                         tagFileCommit,
+                        tagRecipeCommit,
                         commitRecipeFile,
                         commitRecipe,
                         commitRecipeDirectory,
@@ -465,6 +466,10 @@ getRevisionFromTag mtag = case mtag of
             then Nothing
             else readMaybe $ drop (last rs + 1) tag
 
+-- | Tag a recipe's most recent commit
+tagRecipeCommit :: Git.Repository -> T.Text -> T.Text -> IO Bool
+tagRecipeCommit repo branch recipe_name = tagFileCommit repo branch (recipeTomlFilename $ T.unpack recipe_name)
+
 -- | Tag a file's most recent commit
 --
 -- This uses git tags, of the form `refs/tags/<branch>/<filename>/r<revision>`
@@ -696,7 +701,7 @@ testGitRepo tmpdir = do
 
     -- tag a commit
     putStrLn "    - Tag most recent commit of http-server.toml"
-    ok <- tagFileCommit repo "master" "http-server.toml"
+    ok <- tagRecipeCommit repo "master" "http-server"
     unless ok (throwIO TagCommitError)
 
     -- list the commits and check for the tag
