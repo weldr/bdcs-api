@@ -111,6 +111,7 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
         :<|> "recipes"  :> "undo" :> Capture "recipe" String
                                   :> Capture "commit" String :> Post '[JSON] RecipesStatusResponse
         :<|> "recipes"  :> "workspace" :> ReqBody '[JSON, TOML] Recipe :> Post '[JSON] RecipesStatusResponse
+        :<|> "recipes"  :> "tag" :> Capture "recipe" String :> Post '[JSON] RecipesStatusResponse
 
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
@@ -123,6 +124,7 @@ v0ApiServer repoLock pool = pkgInfoH
                        :<|> recipesDeleteH
                        :<|> recipesUndoH
                        :<|> recipesWorkspaceH
+                       :<|> recipesTagH
   where
     pkgInfoH package     = liftIO $ packageInfo pool package
     depsolvePkgH package = liftIO $ depsolvePkg pool package
@@ -134,6 +136,7 @@ v0ApiServer repoLock pool = pkgInfoH
     recipesDeleteH recipe= recipesDelete repoLock "master" recipe
     recipesUndoH recipe commit = recipesUndo repoLock "master" recipe commit
     recipesWorkspaceH recipe   = recipesWorkspace repoLock "master" recipe
+    recipesTagH recipe   = recipesTag repoLock "master" recipe
 
 packageInfo :: ConnectionPool -> T.Text -> IO PackageInfo
 packageInfo pool package = flip runSqlPersistMPool pool $ do
@@ -600,6 +603,22 @@ recipesWorkspace repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock rep
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
+-- | POST /api/v0/recipes/tag/<recipe>
+-- | Tag the most recent recipe commit as the next revision
+recipesTag :: GitLock -> T.Text -> String -> Handler RecipesStatusResponse
+recipesTag repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+    result <- catch_recipe_tag
+    case result of
+        Left  err    -> return $ RecipesStatusResponse False [RecipesAPIError "Unknown" (T.pack err)]
+        Right status -> return $ RecipesStatusResponse status []
+  where
+    catch_recipe_tag :: IO (Either String Bool)
+    catch_recipe_tag =
+        CE.catches (Right <$> tagRecipeCommit (gitRepo repoLock) branch (T.pack recipe_name))
+                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
+                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+
+
 -- | * `/api/v0/recipes/freeze/<recipes>`
 -- |  - Return the contents of the recipe with frozen dependencies instead of expressions.
 -- |  - [Example JSON](fn.recipes_freeze.html#examples)
@@ -609,7 +628,4 @@ recipesWorkspace repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock rep
 -- | * `/api/v0/recipes/depsolve/<recipes>`
 -- |  - Return the recipe and summary information about all of its modules and packages.
 -- |  - [Example JSON](fn.recipes_depsolve.html#examples)
--- | * POST `/api/v0/recipes/tag/<recipe>`
--- |  - Tag the most recent recipe commit as the next revision
--- |  - [Example](fn.recipes_tag.html)
 

@@ -55,10 +55,11 @@ postRecipesNew :: Recipe -> ClientM RecipesStatusResponse
 deleteRecipes :: String -> ClientM RecipesStatusResponse
 postRecipesUndo :: String -> String -> ClientM RecipesStatusResponse
 postRecipesWorkspace :: Recipe -> ClientM RecipesStatusResponse
+postRecipesTag :: String -> ClientM RecipesStatusResponse
 getStatus :<|> getPackage :<|> getDeps :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
           :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo
-          :<|> postRecipesWorkspace = client proxyAPI
+          :<|> postRecipesWorkspace :<|> postRecipesTag = client proxyAPI
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.
@@ -316,6 +317,9 @@ spec = do
 
             it "Write a recipe to the workspace" $ \env ->
                 try env recipesWorkspaceTest `shouldReturn` True
+
+            it "Tag the most recent commit of the recipe" $ \env ->
+                try env (postRecipesTag "A Test Recipe") `shouldReturn` RecipesStatusResponse True []
 
     describe "cleanup" $
         it "Remove the temporary directory" $
