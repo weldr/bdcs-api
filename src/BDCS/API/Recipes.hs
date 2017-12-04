@@ -41,9 +41,12 @@ module BDCS.API.Recipes(openOrCreateRepo,
                         commitRecipe,
                         commitRecipeDirectory,
                         readRecipeCommit,
+                        recipeDiff,
                         runGitRepoTests,
                         runWorkspaceTests,
                         CommitDetails(..),
+                        RecipeDiffEntry(..),
+                        RecipeDiffType(..),
                         GitError(..),
                         printOId)
   where
@@ -56,11 +59,13 @@ import           Control.Exception
 import           Control.Monad(filterM, unless, void)
 import           Control.Monad.IO.Class(MonadIO)
 import           Control.Monad.Loops(allM)
-import           Data.Aeson(FromJSON(..), ToJSON(..), (.=), (.:), object, withObject)
+import           Data.Aeson(FromJSON(..), ToJSON(..), (.=), (.:), object, withObject, Value(..))
 import qualified Data.ByteString as BS
 import           Data.Either(rights)
-import           Data.List(elemIndices, isSuffixOf)
+import           Data.Foldable(asum)
+import           Data.List(elemIndices, find, isSuffixOf, sortBy)
 import           Data.Maybe(fromJust, isJust)
+import           Data.Set(difference, fromList, intersection, Set, toList)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           Data.Text.Encoding(decodeUtf8, encodeUtf8)
@@ -579,6 +584,188 @@ printOId oid =
     Git.oIdToString oid >>= print
 
 
+-- | Type of Diff Entry
+--
+-- Used by RecipeDiffEntry's old and new fields
+data RecipeDiffType =
+    Name {rdtName :: String}
+  | Description {rdtDescription :: String}
+  | Version {rdtVersion :: Maybe String}
+  | Module {rdtModule :: RecipeModule}
+  | Package {rdtPackage :: RecipeModule}
+  | None
+  deriving (Eq, Show)
+
+instance ToJSON RecipeDiffType where
+  toJSON Name{..}        = object ["Name" .= rdtName]
+  toJSON Description{..} = object ["Description" .= rdtDescription]
+  toJSON Version{..}     = object ["Version" .= rdtVersion]
+  toJSON Module{..}      = object ["Module" .= toJSON rdtModule]
+  toJSON Package{..}     = object ["Package" .= toJSON rdtPackage]
+  toJSON None            = toJSON Null
+
+instance FromJSON RecipeDiffType where
+  parseJSON = withObject "Recipe diff type" $ \o -> asum [
+    Name <$> o .: "Name",
+    Description <$> o .: "Description",
+    Version <$> o .: "Version",
+    Module <$> parseJSON (Object o),
+    Package <$> parseJSON (Object o) ]
+
+-- | A difference entry
+--
+-- This uses RecipeDiffType to indicate the type of difference between
+-- recipe fields.
+--
+-- If old is set and new is None it means the entry was removed
+-- If old is None and new is set it means the entry was added
+-- If both are set then old the the old content and new is the new content
+data RecipeDiffEntry =
+    RecipeDiffEntry {
+        rdeOld :: RecipeDiffType,
+        rdeNew :: RecipeDiffType
+    } deriving (Eq, Show)
+
+instance ToJSON RecipeDiffEntry where
+  toJSON RecipeDiffEntry{..} = object [
+      "old" .= rdeOld
+    , "new" .= rdeNew ]
+
+instance FromJSON RecipeDiffEntry where
+  parseJSON = withObject "Recipe diff entry" $ \o -> do
+    rdeOld <- o .: "old"
+    rdeNew <- o .: "new"
+    return RecipeDiffEntry{..}
+
+-- | Find the differences between two recipes
+--
+-- This returns a list of recipe difference entries
+recipeDiff :: Recipe -> Recipe -> [RecipeDiffEntry]
+recipeDiff oldRecipe newRecipe = do
+    let removed_modules = removed_diff module_removed (rModules oldRecipe) (rModules newRecipe)
+    let removed_packages = removed_diff package_removed (rPackages oldRecipe) (rPackages newRecipe)
+    let added_modules = added_diff module_added (rModules oldRecipe) (rModules newRecipe)
+    let added_packages = added_diff package_added (rPackages oldRecipe) (rPackages newRecipe)
+    let same_modules  = same_diff module_diff (rModules oldRecipe) (rModules newRecipe)
+    let same_packages = same_diff package_diff (rPackages oldRecipe) (rPackages newRecipe)
+    let diffs = [name_diff oldRecipe newRecipe,
+                 description_diff oldRecipe newRecipe,
+                 version_diff oldRecipe newRecipe
+                ] ++ removed_modules ++ added_modules ++ same_modules
+                  ++ removed_packages ++ added_packages ++ same_packages
+
+    map fromJust (filter isJust diffs)
+  where
+    -- | Return a list of the modules/packages that have been added
+    --
+    -- diff_f is a function that returns a RecipeDiffEntry (eg. module_added, package_added)
+    -- o and m are lists of the old and new RecipeModules
+    added_diff :: (RecipeModule -> Maybe RecipeDiffEntry) -> [RecipeModule] -> [RecipeModule] -> [Maybe RecipeDiffEntry]
+    added_diff diff_f o n = map (diff_f . new_m) added_m
+      where
+        -- | Return a list of the added module names
+        added_m :: [String]
+        added_m = sortBy caseInsensitive $ toList $ module_names n `difference` module_names o
+        -- | Lookup a recipe module name in the list of new modules
+        new_m :: String -> RecipeModule
+        new_m m = get_module m n
+
+    -- | Return a list of the modules/packages that have been removed
+    --
+    -- diff_f is a function that returns a RecipeDiffEntry (eg. module_removed, package_removed)
+    -- o and m are lists of the old and new RecipeModules
+    removed_diff :: (RecipeModule -> Maybe RecipeDiffEntry) -> [RecipeModule] -> [RecipeModule] -> [Maybe RecipeDiffEntry]
+    removed_diff diff_f o n = map (diff_f . old_m) removed_m
+      where
+        -- | Return a list of the removed module names
+        removed_m :: [String]
+        removed_m = sortBy caseInsensitive $ toList $ module_names o `difference` module_names n
+        -- | Lookup a recipe module name in the list of old modules
+        old_m :: String -> RecipeModule
+        old_m m = get_module m o
+
+    -- | Return a list of changes to modules/packages that are in both old and new lists
+    --
+    -- diff_f is a function that returns a RecipeDiffEntry (eg. module_diff, package_diff)
+    -- o and m are lists of the old and new RecipeModules
+    same_diff :: (RecipeModule -> RecipeModule -> Maybe RecipeDiffEntry) -> [RecipeModule] -> [RecipeModule] -> [Maybe RecipeDiffEntry]
+    same_diff diff_f o n = map (\m -> diff_f (old_m m) (new_m m)) same_m
+      where
+        -- | Return a list of the module names that are in both lists
+        same_m :: [String]
+        same_m = sortBy caseInsensitive $ toList $ module_names o `intersection` module_names n
+        -- | Lookup a recipe module name in the list of old modules
+        old_m :: String -> RecipeModule
+        old_m m = get_module m o
+        -- | Lookup a recipe module name in the list of old modules
+        new_m :: String -> RecipeModule
+        new_m m = get_module m n
+
+    -- | Check the recipe name for a change
+    name_diff :: Recipe -> Recipe -> Maybe RecipeDiffEntry
+    name_diff o n =
+        if rName o == rName n then Nothing else
+            Just $ RecipeDiffEntry (Name (rName o)) (Name (rName n))
+
+    -- | Check the recipe description for a change
+    description_diff :: Recipe -> Recipe -> Maybe RecipeDiffEntry
+    description_diff o n =
+        if rDescription o == rDescription n then Nothing else
+            Just $ RecipeDiffEntry (Description (rDescription o)) (Description (rDescription n))
+
+    -- | Check the recipe version for a change
+    version_diff :: Recipe -> Recipe -> Maybe RecipeDiffEntry
+    version_diff o n =
+        if rVersion o == rVersion n then Nothing else
+            Just $ RecipeDiffEntry (Version $ rVersion o) (Version $ rVersion n)
+
+    -- | Check the module for a different version
+    --
+    -- Returns a Module RecipeDiffType with the module details
+    module_diff :: RecipeModule -> RecipeModule -> Maybe RecipeDiffEntry
+    module_diff o n =
+        if rmVersion o == rmVersion n then Nothing else
+            Just $ RecipeDiffEntry (Module o) (Module n)
+
+    -- | Check the package for a different version
+    --
+    -- Returns a Package RecipeDiffType with the module details
+    package_diff :: RecipeModule -> RecipeModule -> Maybe RecipeDiffEntry
+    package_diff o n =
+        if rmVersion o == rmVersion n then Nothing else
+            Just $ RecipeDiffEntry (Package o) (Package n)
+
+    -- | Return an entry with a removed module
+    module_removed :: RecipeModule -> Maybe RecipeDiffEntry
+    module_removed o = Just $ RecipeDiffEntry (Module o) None
+
+    -- | Return an entry with a removed package
+    package_removed :: RecipeModule -> Maybe RecipeDiffEntry
+    package_removed o = Just $ RecipeDiffEntry (Package o) None
+
+    -- | Return an entry with an added module
+    module_added :: RecipeModule -> Maybe RecipeDiffEntry
+    module_added n = Just $ RecipeDiffEntry None (Module n)
+
+    -- | Return an entry with an added package
+    package_added :: RecipeModule -> Maybe RecipeDiffEntry
+    package_added n = Just $ RecipeDiffEntry None (Package n)
+
+    -- ! Return a Set of the module/package names
+    module_names :: [RecipeModule] -> Set String
+    module_names modules = fromList $ map rmName modules
+
+    -- | Get the recipe module from the list
+    --
+    -- Only call this with module names that are known to be in the list
+    get_module :: String -> [RecipeModule] -> RecipeModule
+    get_module module_name module_list = fromJust $ find (\e -> rmName e == module_name) module_list
+
+    -- | Compare 2 strings case-insensitively
+    --
+    -- Takes into account unicode
+    caseInsensitive :: String -> String -> Ordering
+    caseInsensitive a b = T.toCaseFold (T.pack a) `compare` T.toCaseFold (T.pack b)
 
 
 -- =========================

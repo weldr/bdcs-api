@@ -33,6 +33,7 @@ library
                         bytestring,
                         concurrent-extra,
                         cond,
+                        containers,
                         directory,
                         filepath,
                         gi-gio,

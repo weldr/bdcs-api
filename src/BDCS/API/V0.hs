@@ -28,6 +28,7 @@ module BDCS.API.V0(PackageInfo(..),
                    RecipesListResponse(..),
                    RecipesInfoResponse(..),
                    RecipesChangesResponse(..),
+                   RecipesDiffResponse(..),
                    RecipesStatusResponse(..),
                    RecipesAPIError(..),
                    RecipeChanges(..),
@@ -112,6 +113,10 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
                                   :> Capture "commit" String :> Post '[JSON] RecipesStatusResponse
         :<|> "recipes"  :> "workspace" :> ReqBody '[JSON, TOML] Recipe :> Post '[JSON] RecipesStatusResponse
         :<|> "recipes"  :> "tag" :> Capture "recipe" String :> Post '[JSON] RecipesStatusResponse
+        :<|> "recipes"  :> "diff" :> Capture "recipe" String
+                                  :> Capture "from_commit" String
+                                  :> Capture "to_commit" String
+                                  :> Get '[JSON] RecipesDiffResponse
 
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
@@ -125,6 +130,7 @@ v0ApiServer repoLock pool = pkgInfoH
                        :<|> recipesUndoH
                        :<|> recipesWorkspaceH
                        :<|> recipesTagH
+                       :<|> recipesDiffH
   where
     pkgInfoH package     = liftIO $ packageInfo pool package
     depsolvePkgH package = liftIO $ depsolvePkg pool package
@@ -137,6 +143,7 @@ v0ApiServer repoLock pool = pkgInfoH
     recipesUndoH recipe commit = recipesUndo repoLock "master" recipe commit
     recipesWorkspaceH recipe   = recipesWorkspace repoLock "master" recipe
     recipesTagH recipe   = recipesTag repoLock "master" recipe
+    recipesDiffH recipe from_commit to_commit = recipesDiff repoLock "master" recipe from_commit to_commit
 
 packageInfo :: ConnectionPool -> T.Text -> IO PackageInfo
 packageInfo pool package = flip runSqlPersistMPool pool $ do
@@ -619,12 +626,158 @@ recipesTag repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock repo
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
+data RecipesDiffResponse = RecipesDiffResponse {
+    rdrDiff :: [RecipeDiffEntry]
+} deriving (Eq, Show)
+
+instance ToJSON RecipesDiffResponse where
+  toJSON RecipesDiffResponse{..} = object [
+      "diff" .= rdrDiff ]
+
+instance FromJSON RecipesDiffResponse where
+  parseJSON = withObject "/recipes/diff response" $ \o -> do
+    rdrDiff <- o .: "diff"
+    return RecipesDiffResponse{..}
+
+-- | /api/v0/recipes/diff/<recipe>/<from_commit>/<to_commit>
+-- Return the diff between the two recipe commits. Set to_commit to NEWEST to use the newest commit.
+--
+-- # Arguments
+--
+-- * `recipe_name` - Recipe name
+-- * `from_commit` - The older commit to caclulate the difference from, can also be NEWEST
+-- * `to_commit` - The newer commit to calculate the diff. to, can also be NEWEST or WORKSPACE
+--
+-- # Response
+--
+-- * JSON response with recipe changes.
+--
+-- # Errors
+--
+-- If there is an error retrieving a commit (eg. it cannot find the hash), it will use HEAD
+-- instead and log an error.
+--
+--
+-- In addition to the commit hashes listed by a call to `/recipes/changes/<recipe-name>` you
+-- can use `NEWEST` to compare the latest commit, and `WORKSPACE` to compare it with
+-- the current temporary workspace version of the recipe. eg. to see what the differences
+-- are between the current workspace and most recent commit of `http-server` you would call:
+--
+-- `/recipes/diff/http-server/NEWEST/WORKSPACE`
+--
+-- Each entry in the response's diff object contains the old recipe value and the new one.
+-- If old is null and new is set, then it was added.
+-- If new is null and old is set, then it was removed.
+-- If both are set, then it was changed.
+--
+-- The old/new entries will have the name of the recipe field that was changed. This
+-- can be one of: Name, Description, Version, Module, or Package.
+-- The contents for these will be the old/new values for them.
+--
+-- In the example below the description and version were changed. The php module's
+-- version was changed, the rsync package was removed, and the vim-enhanced package
+-- was added.
+--
+-- # Examples
+--
+-- > {
+-- >     "diff": [
+-- >         {
+-- >             "old": {
+-- >                 "Description": "An example http server with PHP and MySQL support."
+-- >             },
+-- >             "new": {
+-- >                 "Description": "Apache HTTP Server"
+-- >             }
+-- >         },
+-- >         {
+-- >             "old": {
+-- >                 "Version": "0.0.1"
+-- >             },
+-- >             "new": {
+-- >                 "Version": "0.1.1"
+-- >             }
+-- >         },
+-- >         {
+-- >             "old": {
+-- >                 "Module": {
+-- >                     "name": "php",
+-- >                     "version": "5.4.*"
+-- >                 }
+-- >             },
+-- >             "new": {
+-- >                 "Module": {
+-- >                     "name": "php",
+-- >                     "version": "5.6.*"
+-- >                 }
+-- >             }
+-- >         },
+-- >         {
+-- >             "old": null,
+-- >             "new": {
+-- >                 "Package": {
+-- >                     "name": "vim-enhanced",
+-- >                     "version": "8.0.*"
+-- >                 }
+-- >             }
+-- >         },
+-- >         {
+-- >             "old": {
+-- >                 "Package": {
+-- >                     "name": "rsync",
+-- >                     "version": "3.0.*"
+-- >                 }
+-- >             },
+-- >             "new": null
+-- >         }
+-- >     ]
+-- > }
+recipesDiff :: GitLock -> T.Text -> String -> String -> String -> Handler RecipesDiffResponse
+recipesDiff repoLock branch recipe_name from_commit to_commit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+    -- Setup old_recipe
+    -- NEWEST == read the latest git commit for recipe_name
+    -- Otherwise try to read the passed-in commit hash string
+    old_recipe <- get_recipe from_commit
+
+    -- Setup new_recipe
+    -- WORKSPACE == read the recipe's workspace
+    -- NEWEST == read the latest git commit for recipe_name
+    -- Otherwise try to read the passed-in commit hash string
+    new_recipe <- get_recipe to_commit
+
+    case (old_recipe, new_recipe) of
+        (Left _, _)     -> return $ RecipesDiffResponse []
+        (_, Left _)     -> return $ RecipesDiffResponse []
+        (Right o, Right n) -> do
+            let diff = recipeDiff o n
+            return $ RecipesDiffResponse diff
+  where
+    get_recipe :: String -> IO (Either String Recipe)
+    get_recipe "NEWEST"    = catch_git_recipe (T.pack recipe_name) Nothing
+    get_recipe "WORKSPACE" = do
+        ws_recipe <- catch_ws_recipe (T.pack recipe_name)
+        -- If there is no workspace recipe fall back to most recent commit
+        case ws_recipe of
+            Just recipe -> return $ Right recipe
+            Nothing     -> get_recipe "NEWEST"
+    get_recipe commit      = catch_git_recipe (T.pack recipe_name) (Just $ T.pack commit)
+
+    -- | Read the recipe from the workspace, and convert WorkspaceErrors into Nothing
+    catch_ws_recipe :: T.Text -> IO (Maybe Recipe)
+    catch_ws_recipe name =
+        CE.catch (workspaceRead (gitRepo repoLock) branch name)
+                 (\(_ :: WorkspaceError) -> return Nothing)
+
+    -- | Read the recipe from git, and convert errors into Left descriptions of what went wrong.
+    catch_git_recipe :: T.Text -> Maybe T.Text -> IO (Either String Recipe)
+    catch_git_recipe name commit =
+        CE.catches (readRecipeCommit (gitRepo repoLock) branch name commit)
+                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
+                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+
 -- | * `/api/v0/recipes/freeze/<recipes>`
 -- |  - Return the contents of the recipe with frozen dependencies instead of expressions.
 -- |  - [Example JSON](fn.recipes_freeze.html#examples)
--- | * `/api/v0/recipes/diff/<recipe>/<from_commit>/<to_commit>`
--- |  - Return the diff between the two recipe commits. Set to_commit to NEWEST to use the newest commit.
--- |  - [Example JSON](fn.recipes_diff.html#examples)
 -- | * `/api/v0/recipes/depsolve/<recipes>`
 -- |  - Return the recipe and summary information about all of its modules and packages.
 -- |  - [Example JSON](fn.recipes_depsolve.html#examples)
