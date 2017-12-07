@@ -20,7 +20,7 @@ module ServerSpec
   where
 
 import           BDCS.API.Recipe(Recipe(..), RecipeModule(..))
-import           BDCS.API.Recipes(CommitDetails(..))
+import           BDCS.API.Recipes(CommitDetails(..), RecipeDiffType(..), RecipeDiffEntry(..))
 import           BDCS.API.Server
 import           BDCS.API.V0
 import           Control.Conditional(whenM)
@@ -56,10 +56,11 @@ deleteRecipes :: String -> ClientM RecipesStatusResponse
 postRecipesUndo :: String -> String -> ClientM RecipesStatusResponse
 postRecipesWorkspace :: Recipe -> ClientM RecipesStatusResponse
 postRecipesTag :: String -> ClientM RecipesStatusResponse
+getRecipesDiff :: String -> String -> String -> ClientM RecipesDiffResponse
 getStatus :<|> getPackage :<|> getDeps :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
           :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo
-          :<|> postRecipesWorkspace :<|> postRecipesTag = client proxyAPI
+          :<|> postRecipesWorkspace :<|> postRecipesTag :<|> getRecipesDiff = client proxyAPI
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.
@@ -241,10 +242,47 @@ recipesUndoTest = do
 
 -- | Check that writing to the workspace storage works
 recipesWorkspaceTest :: ClientM Bool
-recipesWorkspaceTest = status_ok <$> postRecipesNew aTestRecipe {rDescription = "A workspace only recipe"}
+recipesWorkspaceTest = status_ok <$> postRecipesWorkspace aTestRecipe {rDescription = "A workspace only recipe"}
   where
     status_ok :: RecipesStatusResponse -> Bool
     status_ok = rsrStatus
+
+-- | Test the various /recipes/diff/ methods
+recipesDiffTest :: ClientM Bool
+recipesDiffTest = do
+    result_1 <- oldest_diff
+    result_2 <- workspace_diff
+    result_3 <- commit_diff
+    return $ result_1 && result_2 && result_3
+  where
+    oldest_diff = do
+        response <- getRecipesChanges "A Test Recipe" Nothing Nothing
+        let first_commit = cdCommit $ last $ rcChange (rcrRecipes response !! 0)
+
+        response_1 <- getRecipesDiff "A Test Recipe" (T.unpack first_commit) "NEWEST"
+        let old_version = rdtVersion $ rdeOld (rdrDiff response_1 !! 0)
+        let new_version = rdtVersion $ rdeNew (rdrDiff response_1 !! 0)
+        return $ old_version /= new_version && new_version == Just "0.1.0"
+
+    workspace_diff = do
+        response <- getRecipesChanges "A Test Recipe" Nothing Nothing
+        let first_commit = cdCommit $ last $ rcChange (rcrRecipes response !! 0)
+
+        response_1 <- getRecipesDiff "A Test Recipe" (T.unpack first_commit) "WORKSPACE"
+        let old_desc = rdtDescription $ rdeOld (rdrDiff response_1 !! 0)
+        let new_desc = rdtDescription $ rdeNew (rdrDiff response_1 !! 0)
+        return $ old_desc /= new_desc && new_desc == "A workspace only recipe"
+
+    commit_diff = do
+        response <- getRecipesChanges "A Test Recipe" Nothing Nothing
+        let first_commit = cdCommit $ last $ rcChange (rcrRecipes response !! 0)
+        let newer_commit = cdCommit (rcChange (rcrRecipes response !! 0) !! 3)
+
+        response_1 <- getRecipesDiff "A Test Recipe" (T.unpack first_commit) (T.unpack newer_commit)
+        let old_version = rdtVersion $ rdeOld (rdrDiff response_1 !! 0)
+        let new_version = rdtVersion $ rdeNew (rdrDiff response_1 !! 0)
+        return $ old_version /= new_version && new_version == Just "0.1.7"
+
 
 -- | Setup the temporary repo directory with some example recipes
 --
@@ -303,9 +341,6 @@ spec = do
             it "Get changes to http-server and glusterfs recipes" $ \env ->
                 try env recipesChangesTest2 `shouldReturn` True
 
---            it "blah blah" $ \env ->
---                try env (getRecipesChanges "A Test Recipe" (Just 5) (Just 5)) `shouldReturn` RecipesChangesResponse [] [] 0 0
-
             it "Check offset and limit usage" $ \env ->
                 try env recipesChangesTest3 `shouldReturn` True
 
@@ -321,9 +356,12 @@ spec = do
             it "Tag the most recent commit of the recipe" $ \env ->
                 try env (postRecipesTag "A Test Recipe") `shouldReturn` RecipesStatusResponse True []
 
-    describe "cleanup" $
-        it "Remove the temporary directory" $
-            removeDirectoryRecursive "/var/tmp/bdcs-tmp-recipes/"
+            it "Get the recipe differences" $ \env ->
+                try env recipesDiffTest `shouldReturn` True
+
+--    describe "cleanup" $
+--        it "Remove the temporary directory" $
+--            removeDirectoryRecursive "/var/tmp/bdcs-tmp-recipes/"
 
 
 withClient :: IO Application -> SpecWith ClientEnv -> SpecWith ()
