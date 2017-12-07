@@ -331,7 +331,7 @@ listRecipeCommits repo branch recipe_name = listCommits repo branch (recipeTomlF
 listCommits :: Git.Repository -> T.Text -> T.Text -> IO [CommitDetails]
 listCommits repo branch filename = do
     revwalk <- Git.revisionWalkerNew repo >>= maybeThrow NewWalkerError
-    Git.revisionWalkerSetSortMode revwalk [Git.SortModeTime, Git.SortModeReverse]
+    Git.revisionWalkerSetSortMode revwalk [Git.SortModeTime]
     let branch_ref = T.pack $ printf "refs/heads/%s" branch
     Git.revisionWalkerPushRef revwalk branch_ref
 
