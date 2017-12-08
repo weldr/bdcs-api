@@ -16,6 +16,8 @@
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 {-# LANGUAGE OverloadedStrings #-}
 
+{-| Error functions for use with "BDCS.API"
+-}
 module BDCS.API.Error(createApiError)
   where
 
@@ -23,6 +25,11 @@ import qualified Data.ByteString.Lazy.Char8 as C8
 import           Network.HTTP.Types(Header)
 import           Servant hiding (Header)
 
+-- | Create a 'ServantErr' with an error id and a message
+--
+-- [@base@]: The default 'ServantErr' response
+-- [@apiId@]: An ID to use to link it to the API
+-- [@message@]: A human readable message to include with the error
 createApiError :: ServantErr -> String -> String -> ServantErr
 createApiError base apiId message = base { errBody=apiError, errHeaders=[jsonContentHdr] }
   where

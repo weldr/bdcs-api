@@ -18,6 +18,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
+{-| Git Recipe storage functions
+
+    Recipes are stored in a bare git repository. The repository is created with
+    'openOrCreateRepo' which returns the Repository which is passed to all of
+    the other functions.
+
+-}
 module BDCS.API.Recipes(openOrCreateRepo,
                         findOrCreateBranch,
                         getBranchOIdFromObject,
@@ -82,54 +89,60 @@ import           Text.Read(readMaybe)
 
 {-# ANN module ("HLint: ignore Reduce duplication" :: String) #-}
 
+-- | Errors that can be thrown by the BDCS.API.Recipes functions.
 data GitError =
-    OpenRepoError
-  | CreateRepoError
-  | CreateBlobError
-  | CreateCommitError
-  | CreateBranchError
-  | BranchNameError
-  | WriteTreeError
-  | GetIndexError
-  | GetHeadError
-  | RefLookupError
-  | TreeBuilderError
-  | GetByNameError
-  | GetNameError
-  | GetTargetError
-  | GetTimeError
-  | GetTimeZoneError
-  | GetTreeError
-  | GetTreeIdError
-  | GetCommitterError
-  | GetMessageError
-  | GetParentsError
-  | LookupError
-  | LookupBlobError
-  | LookupBranchError
-  | LookupCommitError
-  | LookupTagError
-  | LookupTreeError
-  | LookupReferenceError
-  | RevparseError
-  | BuilderWriteError
-  | BuilderInsertError
-  | GetEntryIdError
-  | GetIdError
-  | GetRawBlobError
-  | GetTargetIdError
-  | NewOIdError
-  | NewOptionsError
-  | NewTimeValError
-  | NewTreeError
-  | NewSignatureError
-  | NewWalkerError
-  | OIdError
+    OpenRepoError                               -- ^ Repo open error
+  | CreateRepoError                             -- ^ Problem creating a new repo
+  | CreateBlobError                             -- ^ New Blob error
+  | CreateCommitError                           -- ^ Error creating a commit
+  | CreateBranchError                           -- ^ New Branch error
+  | BranchNameError                             -- ^ Branch name error, eg. doesn't exist
+  | WriteTreeError                              -- ^ Tree writing error
+  | GetIndexError                               -- ^ Error getting the repository error
+  | GetHeadError                                -- ^ Error getting the repository head
+  | RefLookupError                              -- ^ Error looking up a ref. eg. doesn't exist
+  | TreeBuilderError                            -- ^ Problem creating a Tree Builder for a Tree.
+  | GetByNameError                              -- ^ Problem getting a Tree by name
+  | GetNameError                                -- ^ Problem getting a Tree Entry by name
+  | GetTargetError                              -- ^ Error getting ref. target
+  | GetTimeError                                -- ^ Problem getting the time from the Signature
+  | GetTimeZoneError                            -- ^ Problem getting the timezone from the Signature
+  | GetTreeError                                -- ^ Error getting Commit Tree
+  | GetTreeIdError                              -- ^ Error getting commit Tree Id
+  | GetCommitterError                           -- ^ Error getting the committer's Signature
+  | GetMessageError                             -- ^ Error getting commit message
+  | GetParentsError                             -- ^ Problem getting commit's parents
+  | LookupError                                 -- ^ Error looking up a commit
+  | LookupBlobError                             -- ^ Error looking up a Blob OId
+  | LookupBranchError                           -- ^ Branch error, eg. doesn't exist
+  | LookupCommitError                           -- ^ Commit error, eg. commit doesn't exist
+  | LookupTagError                              -- ^ Error looking up a Tag. eg. doesn't exist
+  | LookupTreeError                             -- ^ Tree Lookup error. eg. tree id doesn't exist
+  | LookupReferenceError                        -- ^ Problem looking up a reference
+  | RevparseError                               -- ^ Problem parsing a revision spec
+  | BuilderWriteError                           -- ^ Tree Builder write error
+  | BuilderInsertError                          -- ^ Tree Builder insert error
+  | GetEntryIdError                             -- ^ Error getting a tree entry id
+  | GetIdError                                  -- ^ Problem getting object's id
+  | GetRawBlobError                             -- ^ Error getting the raw Blob content
+  | GetTargetIdError                            -- ^ Error getting Tag Id from a tag object
+  | NewOIdError                                 -- ^ Problem creating a new OId from a string
+  | NewOptionsError                             -- ^ Error creating a new Options object
+  | NewTimeValError                             -- ^ Error creating a new TimeVal object
+  | NewTreeError                                -- ^ Problem creating a new diff Tree
+  | NewSignatureError                           -- ^ Error creating a new Signature
+  | NewWalkerError                              -- ^ Error creating a new revision Walker object
+  | OIdError                                    -- ^ Error creating a String from an OId
   deriving (Eq, Show)
 
 instance Exception GitError
 
 -- | Get the branch's HEAD Commit
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+--
+-- Can throw 'LookupBranchError' or 'LookupCommitError'
 headCommit :: Git.Repository -> T.Text -> IO Git.Commit
 headCommit repo branch = do
     branch_obj <- Git.repositoryLookupBranch repo branch Git.BranchTypeLocal >>= maybeThrow LookupBranchError
@@ -137,6 +150,14 @@ headCommit repo branch = do
     Git.repositoryLookupCommit repo branch_id >>= maybeThrow LookupCommitError
 
 -- | Prepare for a commit
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@builder@]: Tree to add the commit to
+--
+-- Returns a tuple of information used when making a commit
+--
+-- Can throw 'BuilderWriteError', 'LookupTreeError', 'NewSignatureError'
 prepareCommit :: Git.Repository -> T.Text -> Git.TreeBuilder -> IO (Git.Tree, Git.Signature, Maybe T.Text, Maybe T.Text)
 prepareCommit repo branch builder = do
     tree_id <- Git.treeBuilderWrite builder >>= maybeThrow BuilderWriteError
@@ -147,6 +168,15 @@ prepareCommit repo branch builder = do
     return (tree, sig, ref, encoding)
 
 -- | Open a Git repository, or create the initial repository if one doesn't exist
+--
+-- [@path@]: Path to the git repository
+--
+-- The bare git repository is created in ./git underneath path
+-- If the directory doesn't look like an existing git repo (no ./git/HEAD file) then a new
+-- bare repository is created.
+--
+-- Can throw 'OpenRepoError', 'CreateRepoError', 'NewSignatureError', 'GetIndexError',
+-- 'WriteTreeError', 'LookupTreeError', or 'CreateCommitError'
 openOrCreateRepo :: FilePath -> IO Git.Repository
 openOrCreateRepo path = do
     gfile <- fileNewForPath (path ++ "/git")
@@ -171,6 +201,11 @@ openOrCreateRepo path = do
         return repo
 
 -- | Lookup the Branch name or create a new branch and return a Git.Branch
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+--
+-- Can throw 'GetHeadError', 'RefLookupError', or 'CreateBranchError'
 findOrCreateBranch :: Git.Repository -> T.Text -> IO Git.Branch
 findOrCreateBranch repo branch = do
     mbranch <- Git.repositoryLookupBranch repo branch Git.BranchTypeLocal
@@ -182,6 +217,11 @@ findOrCreateBranch repo branch = do
         Git.repositoryCreateBranch repo branch parent_obj [Git.CreateFlagsNone] >>= maybeThrow CreateBranchError
 
 -- | Convert a Branch object to an OId
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+--
+-- Can throw 'BranchNameError', 'LookupReferenceError', or 'GetTargetError'
 getBranchOIdFromObject :: Git.Repository -> Git.Branch -> IO Git.OId
 getBranchOIdFromObject repo branch_obj = do
     branch_name <- Git.branchGetName branch_obj >>= maybeThrow BranchNameError
@@ -190,6 +230,16 @@ getBranchOIdFromObject repo branch_obj = do
     Git.refGetTarget ref >>= maybeThrow GetTargetError
 
 -- | Make a new commit to a repository's branch
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@filename@]: Filename of the commit
+-- [@message@]: Commit message
+-- [@content@]: Data to be written to the commit
+--
+-- Returns the OId of the new commit.
+--
+-- Can throw 'CreateBlobError', 'GetTreeError', 'TreeBuilderError', 'BuilderInsertError', or 'CreateCommitError'
 writeCommit :: Git.Repository -> T.Text -> T.Text -> T.Text -> BS.ByteString -> IO Git.OId
 writeCommit repo branch filename message content = do
     -- TODO Create the branch if it doesn't already exist (using findOrCreateBranch)
@@ -204,6 +254,12 @@ writeCommit repo branch filename message content = do
     Git.repositoryCreateCommit repo ref sig sig encoding message tree [parent_commit] >>= maybeThrow CreateCommitError
 
 -- | Read a commit and return a ByteString of the content
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@filename@]: Filename of the commit
+-- [@commit@]: Commit hash to read, or Nothing to read the HEAD
+--
 -- TODO Return the commit message too
 readCommit :: Git.Repository -> T.Text -> T.Text -> Maybe T.Text -> IO BS.ByteString
 readCommit repo branch filename Nothing = do
@@ -214,6 +270,13 @@ readCommit repo _ filename commit = do
     readCommitSpec repo spec
 
 -- | Read a commit usinga revspec, return the ByteString content
+--
+-- [@repo@]: Open git repository
+-- [@spec@]: revspec to read.
+--
+-- eg. \<commit\>:\<filename\> or \<branch\>:\<filename\>
+--
+-- Can throw 'RevparseError', 'GetIdError', 'LookupBlobError', or 'GetRawBlobError'
 readCommitSpec :: Git.Repository -> T.Text -> IO BS.ByteString
 readCommitSpec repo spec = do
     obj <- Git.repositoryRevparse repo spec >>= maybeThrow RevparseError
@@ -222,6 +285,11 @@ readCommitSpec repo spec = do
     Git.blobGetRawContent blob >>= maybeThrow GetRawBlobError
 
 -- | Get the filename for a Blob tree entry
+--
+-- [@tree@]: The commit's Tree object
+-- [@idx@]: Entry index to get
+--
+-- Can throw 'GetTreeError', or 'GetNameError'
 getFilename :: Git.Tree -> Word32 -> IO (Maybe T.Text)
 getFilename tree idx = do
     entry <- Git.treeGet tree idx >>= maybeThrow GetTreeError
@@ -238,10 +306,19 @@ getFilename tree idx = do
 
 {-# ANN getFilenames ("HLint: ignore Eta reduce"::String) #-}
 -- | Get a list of the Blob tree entry filenames
+--
+-- [@tree@]: The commit's Tree object
+-- [@idx@]: Entry index to get
+--
+-- This is limited to entries of type Blob and BlobExecutable
 getFilenames :: Git.Tree -> Word32 -> IO [T.Text]
 getFilenames tree idx = getFilenames' tree [] idx
 
 -- | Build the list of filenames from the tree entries
+--
+-- [@tree@]: The commit's Tree object
+-- [@filenames@]: The accumulated list of filenames
+-- [@idx@]: Entry index to get
 getFilenames' :: Git.Tree -> [T.Text] -> Word32 -> IO [T.Text]
 getFilenames' _ filenames 0 = return filenames
 getFilenames' tree filenames idx = getFilename tree (idx-1) >>= \case
@@ -249,11 +326,19 @@ getFilenames' tree filenames idx = getFilename tree (idx-1) >>= \case
     Nothing   -> getFilenames' tree filenames (idx-1)
 
 -- | List the files on a branch
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
 listBranchFiles :: Git.Repository -> T.Text -> IO [T.Text]
 listBranchFiles repo branch =
     headCommit repo branch >>= listCommitFiles repo
 
 -- | List the files in a commit
+--
+-- [@repo@]: Open git repository
+-- [@commit@]: The commit to get the files from
+--
+-- Can throw 'GetTreeIdError', or 'LookupTreeError'
 listCommitFiles :: Git.Repository -> Git.Commit -> IO [T.Text]
 listCommitFiles repo commit = do
     parent_tree_id <- Git.commitGetTreeId commit >>= maybeThrow GetTreeIdError
@@ -261,9 +346,21 @@ listCommitFiles repo commit = do
     sz <- Git.treeSize tree
     getFilenames tree sz
 
+-- | Delete a recipe from a branch
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@recipe_name@]: The recipe name to delete (not the filename)
 deleteRecipe :: Git.Repository -> T.Text -> T.Text -> IO Git.OId
 deleteRecipe repo branch recipe_name = deleteFile repo branch (recipeTomlFilename $ T.unpack recipe_name)
 
+-- | Delete a file from a branch
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@filename@]: The recipe filename to delete
+--
+-- Can throw `GetTreeError`, 'TreeBuilderError', or 'CreateCommitError'
 deleteFile :: Git.Repository -> T.Text -> T.Text -> IO Git.OId
 deleteFile repo branch filename = do
     parent_commit <- headCommit repo branch
@@ -276,14 +373,38 @@ deleteFile repo branch filename = do
     let message = T.pack $ printf "Recipe %s deleted" filename
     Git.repositoryCreateCommit repo ref sig sig encoding message tree [parent_commit] >>= maybeThrow  CreateCommitError
 
+{-# ANN revertRecipe ("HLint: ignore Eta reduce"::String) #-}
+-- | Revert a recipe to a previous commit
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@recipe_name@]: The recipe name to revert (not the filename)
+-- [@commit@]: The commit hash string to revert to
 revertRecipe :: Git.Repository -> T.Text -> T.Text -> T.Text -> IO Git.OId
 revertRecipe repo branch recipe_name commit = revertFile repo branch (recipeTomlFilename $ T.unpack recipe_name) commit
 
+-- | Revert a recipe file to a previous commit
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@filename@]: The recipe filename to revert
+-- [@commit@]: The commit hash string to revert to
+--
+-- Can throw 'NewOIdError'
 revertFile :: Git.Repository -> T.Text -> T.Text -> T.Text -> IO Git.OId
 revertFile repo branch filename commit = do
     commit_id <- Git.oIdNewFromString commit >>= maybeThrow NewOIdError
     revertFileCommit repo branch filename commit_id
 
+-- | Revert a recipe file to a previous commit
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@filename@]: The recipe filename to revert
+-- [@commit@]: The commit object to revert to
+--
+-- Can throw 'LookupCommitError', 'GetTreeError', 'GetByNameError', 'GetEntryIdError', 'GetTreeError',
+-- '', 'OIdError', 'CreateCommitError'
 revertFileCommit :: Git.Repository -> T.Text -> T.Text -> Git.OId -> IO Git.OId
 revertFileCommit repo branch filename commit_id = do
     commit_obj <- Git.repositoryLookupCommit repo commit_id >>= maybeThrow LookupCommitError
@@ -303,10 +424,10 @@ revertFileCommit repo branch filename commit_id = do
 
 -- | File commit details
 data CommitDetails =
-    CommitDetails { cdCommit    :: T.Text
-                  , cdTime      :: T.Text
-                  , cdMessage   :: T.Text
-                  , cdRevision  :: Maybe Int
+    CommitDetails { cdCommit    :: T.Text                       -- ^ Hash string
+                  , cdTime      :: T.Text                       -- ^ Timestamp in ISO 8601 format
+                  , cdMessage   :: T.Text                       -- ^ Commit message, separated by \n
+                  , cdRevision  :: Maybe Int                    -- ^ Recipe revision number
     } deriving (Show, Eq)
 
 -- JSON instances for CommitDetails
@@ -325,9 +446,25 @@ instance FromJSON CommitDetails where
     cdRevision <- o .: "revision"
     return CommitDetails{..}
 
+-- | List the commits for a recipe
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@recipe_name@]: Recipe name (not filename)
+--
+-- Returns a list of 'CommitDetails'
 listRecipeCommits :: Git.Repository -> T.Text -> T.Text -> IO [CommitDetails]
 listRecipeCommits repo branch recipe_name = listCommits repo branch (recipeTomlFilename $ T.unpack recipe_name)
 
+-- | List the commits for a filename
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@filename@]: Recipe filename
+--
+-- Returns a list of 'CommitDetails'
+--
+-- Can throw 'NewWalkerError'
 listCommits :: Git.Repository -> T.Text -> T.Text -> IO [CommitDetails]
 listCommits repo branch filename = do
     revwalk <- Git.revisionWalkerNew repo >>= maybeThrow NewWalkerError
@@ -338,6 +475,20 @@ listCommits repo branch filename = do
     mfirst_id <- Git.revisionWalkerNext revwalk
     commitDetails repo revwalk branch filename [] mfirst_id
 
+-- | Get the commit details for a filename
+--
+-- [@repo@]: Open git repository
+-- [@revwalk@]: Git revwalk object
+-- [@branch@]: Branch name
+-- [@filename@]: Recipe filename
+-- [@details@]: Accumulated 'CommitDetails' for the filename
+-- [@next_id@]: Next commit OId
+--
+-- This is a recursive function that accumulates the details for the filename,
+-- returning when there are no more commits to examine.
+--
+-- Can throw 'LookupCommitError', 'GetParentsError', 'GetTreeError', 'GetMessageError',
+-- 'OIdError', 'GetCommitterError', 'GetTimeError'
 commitDetails :: Git.Repository -> Git.RevisionWalker -> T.Text -> T.Text -> [CommitDetails] -> Maybe Git.OId -> IO [CommitDetails]
 commitDetails _ _ _ _ details Nothing = return details
 commitDetails repo revwalk branch filename details next_id = do
@@ -407,7 +558,12 @@ commitDetails repo revwalk branch filename details next_id = do
 
         return $ T.pack $ printf "%d-%02d-%02dT%02d:%02d:%sZ" year month day hour minute secondsStr
 
--- | Determine if there were changes between this commit and its parent
+-- | Determine if there were changes between a file's commit and its parent
+--
+-- [@repo@]: Open git repository
+-- [@filename@]: Filename to check
+-- [@commit_tree@]: The filename's commit Tree
+-- [@parent_commit@]: The parent commit to check
 --
 -- Return True if there were changes, False otherwise
 parentDiff :: Git.Repository -> T.Text -> Git.Tree -> Git.Commit -> IO Bool
@@ -422,8 +578,13 @@ parentDiff repo filename commit_tree parent_commit = do
 
 -- | Find the revision tag pointing to a specific commit
 --
--- Tag is of the form 'refs/tags/<branch>/<filename>/r<revision>
--- There should really only be one.
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@filename@]: Recipe filename
+-- [@commit_id@]: The commit OId
+--
+-- The Tag is of the form refs/tags/\<branch\>/\<filename\>/r\<revision\>
+-- There should only be one result.
 findCommitTag :: Git.Repository -> T.Text -> T.Text -> Git.OId -> IO (Maybe T.Text)
 findCommitTag repo branch filename commit_id = do
     let tag_pattern = T.pack $ printf "%s/%s/r*" branch filename
@@ -454,10 +615,13 @@ findCommitTag repo branch filename commit_id = do
         cmp <- Git.oIdCompare oid commit_id
         return $ cmp == 0
 
--- | Return the revision number from a git tag
--- Tag is of the form 'refs/tags/<branch>/<filename>/r<revision>
+-- | Get the revision number from a git tag
 --
--- Returns a Just Int if all goes well, otherwise Nothing
+-- [@mtag@]: The tag string to extract the revision from
+--
+-- The Tag is of the form refs/tags/\<branch\>/\<filename\>/r\<revision\>
+--
+-- Returns the revision from the tag, or Nothing
 getRevisionFromTag :: Maybe T.Text -> Maybe Int
 getRevisionFromTag mtag = case mtag of
     Nothing  -> Nothing
@@ -472,15 +636,27 @@ getRevisionFromTag mtag = case mtag of
             else readMaybe $ drop (last rs + 1) tag
 
 -- | Tag a recipe's most recent commit
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@recipe_name@]: Recipe name (not filename)
+--
+-- Returns True if it is successful
 tagRecipeCommit :: Git.Repository -> T.Text -> T.Text -> IO Bool
 tagRecipeCommit repo branch recipe_name = tagFileCommit repo branch (recipeTomlFilename $ T.unpack recipe_name)
 
 -- | Tag a file's most recent commit
 --
--- This uses git tags, of the form `refs/tags/<branch>/<filename>/r<revision>`
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@filename@]: Recipe filename
+--
+-- This uses git tags, of the form refs/tags/\<branch\>/\<filename\>/r\<revision\>
 -- Only the most recent recipe commit can be tagged to prevent out of order tagging.
 -- Revisions start at 1 and increment for each new commit that is tagged.
--- If the commit has already been tagged it will return false.
+-- If the commit has already been tagged it will return False.
+--
+-- Can throw 'NewSignatureError', 'NewOIdError', 'LookupError'
 tagFileCommit :: Git.Repository -> T.Text -> T.Text -> IO Bool
 tagFileCommit repo branch filename = do
     commits <- listCommits repo branch filename
@@ -523,7 +699,13 @@ tagFileCommit repo branch filename = do
     isFirstCommit (c:_) (Just commit) = commit == c
 
 
--- | Read and parse a recipe file
+-- | Commit a Recipe TOML file
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@filename@]: Recipe filename
+--
+-- Returns the OId of the new commit
 commitRecipeFile :: Git.Repository -> T.Text -> FilePath -> IO Git.OId
 commitRecipeFile repo branch filename = do
     toml_in <- TIO.readFile filename
@@ -534,8 +716,13 @@ commitRecipeFile repo branch filename = do
 
 -- | Commit a Recipe record to a branch
 --
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@recipe@]: Recipe record
+--
 -- If there is already an existing recipe this will bump or replace the
--- version number depending on what the new recipe contains.
+-- version number depending on what the new recipe contains. See the rules
+-- in 'bumpVersion'
 commitRecipe :: Git.Repository -> T.Text -> Recipe -> IO Git.OId
 commitRecipe repo branch recipe = do
     old_version <- getOldVersion (T.pack $ rName recipe)
@@ -558,6 +745,12 @@ commitRecipe repo branch recipe = do
 
 -- | Commit recipes from a directory, if they don't already exist
 --
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@directory@]: Directory to read the recipes from
+--
+-- This reads all files ending in .toml from the directory, skipping recipes that
+-- are already in the branch.
 commitRecipeDirectory :: Git.Repository -> T.Text -> FilePath -> IO [Git.OId]
 commitRecipeDirectory repo branch directory = do
     branch_files <- listBranchFiles repo branch
@@ -568,6 +761,13 @@ commitRecipeDirectory repo branch directory = do
     skipFiles branch_files file = T.pack file `notElem` branch_files && ".toml" `isSuffixOf` file
 
 -- | Read a Recipe from a commit
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@recipe_name@]: Recipe name (not filename)
+-- [@commit@]: The commit hash string to read
+--
+-- If the recipe isn't found it returns a Left
 readRecipeCommit :: Git.Repository -> T.Text -> T.Text -> Maybe T.Text -> IO (Either String Recipe)
 readRecipeCommit repo branch recipe_name commit = do
     -- Is this file in the branch?
@@ -579,6 +779,11 @@ readRecipeCommit repo branch recipe_name commit = do
             recipe_toml <- readCommit repo branch filename commit
             return $ parseRecipe (decodeUtf8 recipe_toml)
 
+-- | print the OId
+--
+-- [@oid@]: The OId to print
+--
+-- Used for debugging
 printOId :: Git.OId -> IO ()
 printOId oid =
     Git.oIdToString oid >>= print
@@ -588,12 +793,12 @@ printOId oid =
 --
 -- Used by RecipeDiffEntry's old and new fields
 data RecipeDiffType =
-    Name {rdtName :: String}
-  | Description {rdtDescription :: String}
-  | Version {rdtVersion :: Maybe String}
-  | Module {rdtModule :: RecipeModule}
-  | Package {rdtPackage :: RecipeModule}
-  | None
+    Name {rdtName :: String}                                    -- ^ Name changed
+  | Description {rdtDescription :: String}                      -- ^ Description changed
+  | Version {rdtVersion :: Maybe String}                        -- ^ Version changed
+  | Module {rdtModule :: RecipeModule}                          -- ^ Module version changed, added, or removed
+  | Package {rdtPackage :: RecipeModule}                        -- ^ Package version changed, added, or removed
+  | None                                                        -- ^ Used for added and removed
   deriving (Eq, Show)
 
 instance ToJSON RecipeDiffType where
@@ -639,7 +844,12 @@ instance FromJSON RecipeDiffEntry where
 
 -- | Find the differences between two recipes
 --
--- This returns a list of recipe difference entries
+-- [@oldRecipe@]: The old version of the Recipe
+-- [@newRecipe@]: The new version of the Recipe
+--
+-- This calculates the differences between the recipes, returning a list of 'RecipeDiffEntry'.
+-- The order is always the same, Name, Description, Version, removed Modules, added Modules,
+-- removed Packages, added Packages, and then packages with different versions.
 recipeDiff :: Recipe -> Recipe -> [RecipeDiffEntry]
 recipeDiff oldRecipe newRecipe = do
     let removed_modules = removed_diff module_removed (rModules oldRecipe) (rModules newRecipe)
@@ -806,9 +1016,11 @@ data TestError =
 
 instance Exception TestError
 
+-- | Run the Git repository tests with a temporary directory
 runGitRepoTests :: IO Bool
 runGitRepoTests = withTempDirectory "/var/tmp/" "bdcsgit-test" testGitRepo
 
+-- | Test the Git repository functions
 testGitRepo :: FilePath -> IO Bool
 testGitRepo tmpdir = do
     Git.init
@@ -900,9 +1112,11 @@ testGitRepo tmpdir = do
     return True
 
 
+-- | Run the Workspace tests with a temporary directory
 runWorkspaceTests :: IO Bool
 runWorkspaceTests = withTempDirectory "/var/tmp/" "bdcsws-test" testWorkspace
 
+-- | Test the Workspace functions
 testWorkspace :: FilePath -> IO Bool
 testWorkspace tmpdir = do
     Git.init

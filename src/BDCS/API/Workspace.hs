@@ -16,6 +16,14 @@
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 {-# LANGUAGE OverloadedStrings #-}
 
+{-| Workspace functions - The workspace is a temporary storage location for Recipes.
+
+    The workspace files are stored under the ./git/workspace/\<branch\> directory
+    using the recipe's toml filename as created by 'recipeTomlFilename'.
+
+    Recipes written to the workspace are not committed to git, and are overwritten
+    on the next call to 'workspaceWrite'
+-}
 module BDCS.API.Workspace(workspaceRead,
                           workspaceWrite,
                           workspaceDelete,
@@ -34,23 +42,31 @@ import qualified GI.Ggit as Git
 import           System.Directory(createDirectoryIfMissing, doesFileExist, removeFile)
 import           System.FilePath.Posix((</>))
 
+-- | Workspace Errors
 data WorkspaceError =
-    RepoLocationError
-  | ParseRecipeError String
+    RepoLocationError           -- ^ There was a problem getting the path to the repository
+  | ParseRecipeError String     -- ^ There was an error parsing the recipe, details will be included
   deriving (Eq, Show)
 
 instance Exception WorkspaceError
 
--- | Create the workspace's path from a Repository and branch
+-- | Create the branch's workspace path
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
 workspaceDir :: Git.Repository -> T.Text -> IO FilePath
 workspaceDir repo branch = do
     location <- Git.repositoryGetLocation repo >>= maybeThrow RepoLocationError
     path <- fileGetPath location >>= maybeThrow RepoLocationError
     return $ path </> "workspace" </> T.unpack branch
 
--- | Read a Recipe from the branch's workspace
--- Returns a Maybe Recipe
--- Can throw WorkspaceError
+-- | Read a 'Recipe' from the branch's workspace
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@recipe_name@]: The name, not the filename, of the recipe to read
+--
+-- Can throw 'WorkspaceError'
 workspaceRead :: Git.Repository -> T.Text -> T.Text -> IO (Maybe Recipe)
 workspaceRead repo branch recipe_name = do
     dir <- workspaceDir repo branch
@@ -68,6 +84,11 @@ workspaceRead repo branch recipe_name = do
             Left e       -> throwIO $ ParseRecipeError e
             Right recipe -> return recipe
 
+-- | Write a 'Recipe' to the branch's workspace
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@recipe@]: The 'Recipe' to write to the workspace
 workspaceWrite :: Git.Repository -> T.Text -> Recipe -> IO ()
 workspaceWrite repo branch recipe = do
     dir <- workspaceDir repo branch
@@ -76,7 +97,12 @@ workspaceWrite repo branch recipe = do
     let filename = dir </> T.unpack (recipeTomlFilename (rName recipe))
     writeFile filename toml_out
 
--- | Delete the recipe from the workspace
+-- | Delete the recipe from the branch's workspace
+--
+-- [@repo@]: Open git repository
+-- [@branch@]: Branch name
+-- [@recipe_name@]: The name, not the filename, of the recipe to read
+--
 -- Can throw a WorkspaceError
 workspaceDelete :: Git.Repository -> T.Text -> T.Text -> IO ()
 workspaceDelete repo branch recipe_name = do

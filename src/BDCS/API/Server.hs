@@ -22,6 +22,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 
+{-| BDCS API Server
+
+    This starts a server and answers the API requests.
+-}
 module BDCS.API.Server(mkApp,
                        proxyAPI,
                        runServer,
@@ -45,11 +49,12 @@ import           Network.Wai.Middleware.Cors
 import           Network.Wai.Middleware.Servant.Options
 import           Servant
 
+-- | The status of the server, the database, and the API.
 data ServerStatus = ServerStatus
-  {  srvVersion   :: String
-  ,  srvSchema    :: String
-  ,  srvDb        :: String
-  ,  srvSupported :: Bool
+  {  srvVersion   :: String                                     -- ^ Server version
+  ,  srvSchema    :: String                                     -- ^ Supported Database Schema version
+  ,  srvDb        :: String                                     -- ^ Database version
+  ,  srvSupported :: Bool                                       -- ^ True if the Database is supported by the Server
   } deriving (Eq, Show)
 
 instance ToJSON ServerStatus where
@@ -67,7 +72,7 @@ instance FromJSON ServerStatus where
     srvSupported <- o .: "supported"
     return ServerStatus{..}
 
-
+-- | The /status route
 type CommonAPI = "status" :> Get '[JSON] ServerStatus
 
 
@@ -77,6 +82,7 @@ serverStatus = return (ServerStatus "0.0.0" "0" "0" False)
 commonServer :: Server CommonAPI
 commonServer = serverStatus
 
+-- | The combined API routes, /status and /api/v0/*
 type CombinedAPI = CommonAPI
               :<|> "api" :> "v0" :> V0API
 
@@ -84,7 +90,7 @@ combinedServer :: GitLock -> ConnectionPool -> Server CombinedAPI
 combinedServer repoLock pool = commonServer
                           :<|> v0ApiServer repoLock pool
 
--- CORS related stuff
+-- | CORS policy
 appCors :: Middleware
 appCors = cors (const $ Just policy)
   where
@@ -92,6 +98,9 @@ appCors = cors (const $ Just policy)
              { corsRequestHeaders = ["Content-Type"]
              , corsMethods = "PUT" : simpleMethods }
 
+-- | Servant 'Proxy'
+--
+-- This connects the API to everything else
 proxyAPI :: Proxy CombinedAPI
 proxyAPI = Proxy
 
@@ -101,6 +110,9 @@ app gitRepo pool = appCors
                  $ serve proxyAPI
                  $ combinedServer gitRepo pool
 
+-- | Create the server app
+--
+-- Create a SQLite connection pool, open/create the Git repo, and return the app
 mkApp :: FilePath -> FilePath -> IO Application
 mkApp gitRepoPath sqliteDbPath = do
     pool <- runStderrLoggingT $ createSqlitePool (cs sqliteDbPath) 5
@@ -115,5 +127,6 @@ mkApp gitRepoPath sqliteDbPath = do
 
     return $ app repoLock pool
 
+-- | Run the API server
 runServer :: Int -> FilePath -> FilePath -> IO ()
 runServer port gitRepoPath sqliteDbPath = run port =<< mkApp gitRepoPath sqliteDbPath

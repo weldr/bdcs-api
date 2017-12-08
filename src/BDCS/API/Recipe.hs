@@ -17,6 +17,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
+{-| Recipe is used to store information about what packages are included in a composition.
+
+    It can be converted to and from TOML and JSON when needed.
+-}
 module BDCS.API.Recipe(bumpVersion,
                        parseRecipe,
                        recipeTOML,
@@ -39,12 +43,15 @@ import           Text.Toml(parseTomlDoc)
 
 {-# ANN module ("HLint: ignore Reduce duplication" :: String) #-}
 
+-- | Recipe data structure
+--
+-- Note that at this time there is no real distinction between package and modules.
 data Recipe =
-    Recipe { rName              :: String
-           , rVersion           :: Maybe String
-           , rDescription       :: String
-           , rPackages          :: [RecipeModule]
-           , rModules           :: [RecipeModule]
+    Recipe { rName              :: String               -- ^ Human readable recipe name
+           , rVersion           :: Maybe String         -- ^ Version, following [semver](http://www.semver.org) rules.
+           , rDescription       :: String               -- ^ Human readable description of the Recipe
+           , rPackages          :: [RecipeModule]       -- ^ List of Packages in the Recipe
+           , rModules           :: [RecipeModule]       -- ^ List of Modules in the Recipe
     } deriving (Eq, Show)
 
 instance FromJSON Recipe where
@@ -71,9 +78,10 @@ instance FromTOML Recipe where
     parseTOML toml = parseRecipe $ cs toml
 
 
+-- | Name and Version glob of a package or module
 data RecipeModule =
-    RecipeModule { rmName         :: String
-                 , rmVersion      :: String
+    RecipeModule { rmName         :: String             -- ^ Name of the package/module
+                 , rmVersion      :: String             -- ^ Version glob describing the package
     } deriving (Eq, Show)
 
 instance FromJSON RecipeModule where
@@ -88,7 +96,9 @@ instance ToJSON RecipeModule where
       , "version" .= rmVersion ]
 
 
--- | Parse a TOML formatted string and return a Recipe
+-- | Parse a TOML formatted recipe string and return a Recipe
+--
+-- If there is an error the details will be returned in the Left
 parseRecipe :: T.Text -> Either String Recipe
 parseRecipe xs =
     case parseTomlDoc "" xs of
@@ -114,17 +124,24 @@ recipeTOML Recipe{..} = T.concat [nameText, versionText, descriptionText, module
 
 -- | Convert a recipe name to a toml filename
 --
+-- [@name@]: The recipe name (not filename)
+--
 -- Replaces spaces with - and append .toml
 recipeTomlFilename :: String -> T.Text
 recipeTomlFilename name = T.append (T.replace " " "-" (T.pack name)) ".toml"
 
--- | semver recipe version number bump
+-- | [semver](http://www.semver.org) recipe version number bump
 --
--- If neither have a version 0.0.1 is returned
--- If there is no previous version the new version is checked and returned
--- If there is no new version, but there is a previous one, bump its patch level
--- If the previous and new versions are the same, bump the patch level
--- If they are different, check and return the new version
+-- [@prev_ver@]: Previous version
+-- [@new_ver@]: New version
+--
+-- * If neither have a version 0.0.1 is returned
+-- * If there is no previous version the new version is checked and returned
+-- * If there is no new version, but there is a previous one, bump its patch level
+-- * If the previous and new versions are the same, bump the patch level
+-- * If they are different, check and return the new version
+--
+-- Errors will be returned in the Left
 bumpVersion :: Maybe String -> Maybe String -> Either String String
 bumpVersion Nothing Nothing = Right "0.0.1"
 -- Only a new version, make sure the new version can be parsed
@@ -152,8 +169,13 @@ bumpVersion (Just prev_ver) (Just new_ver)
 
 -- | Bump or replace a Recipe Version with a new one
 --
+-- [@recipe@]: The Recipe to bump
+-- [@prev_version@]: Previous version of the recipe
+--
 -- Pass the new recipe and the version from the previous recipe
 -- Returns a new recipe with the correct version
+--
+-- Errors will be returned in the Left
 recipeBumpVersion :: Recipe -> Maybe String -> Either String Recipe
 recipeBumpVersion recipe prev_version = case bumpVersion prev_version (rVersion recipe) of
     Right version -> Right recipe { rVersion = Just version }

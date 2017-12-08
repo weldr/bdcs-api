@@ -23,7 +23,10 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+{-# OPTIONS_HADDOCK ignore-exports, prune #-}
 
+{-| API v0 routes
+-}
 module BDCS.API.V0(PackageInfo(..),
                    RecipesListResponse(..),
                    RecipesInfoResponse(..),
@@ -64,9 +67,10 @@ import           Utils.Monad(mapMaybeM)
 
 {-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
 
+-- | Information about Packages
 data PackageInfo = PackageInfo
-  {  piName    :: T.Text
-  ,  piSummary :: T.Text
+  {  piName    :: T.Text                                                -- ^ Package name
+  ,  piSummary :: T.Text                                                -- ^ Package summary
   } deriving (Eq, Show)
 
 instance ToJSON PackageInfo where
@@ -82,6 +86,13 @@ instance FromJSON PackageInfo where
 
 
 -- | RecipesAPIError is used to report errors with the /recipes/ routes
+--
+-- This is converted to a JSON error response that is used in the API responses
+--
+-- > {
+-- >     "recipe": "unknown-recipe",
+-- >     "msg": "unknown-recipe.toml is not present on branch master"
+-- > }
 data RecipesAPIError = RecipesAPIError
   {  raeRecipe  :: T.Text,
      raeMsg     :: T.Text
@@ -99,6 +110,7 @@ instance FromJSON RecipesAPIError where
     return RecipesAPIError{..}
 
 
+-- These are the API routes. This is not documented in haddock because it doesn't format it correctly
 type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
         :<|> "depsolve" :> Capture "package" T.Text :> Get '[JSON] [T.Text]
         :<|> "errtest"  :> Get '[JSON] [T.Text]
@@ -118,6 +130,7 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
                                   :> Capture "to_commit" String
                                   :> Get '[JSON] RecipesDiffResponse
 
+-- | Connect the V0API type to all of the handlers
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
                        :<|> depsolvePkgH
@@ -145,6 +158,7 @@ v0ApiServer repoLock pool = pkgInfoH
     recipesTagH recipe   = recipesTag repoLock "master" recipe
     recipesDiffH recipe from_commit to_commit = recipesDiff repoLock "master" recipe from_commit to_commit
 
+-- | Example of getting package info from the sqlite database
 packageInfo :: ConnectionPool -> T.Text -> IO PackageInfo
 packageInfo pool package = flip runSqlPersistMPool pool $ do
     mproj <- findProject package
@@ -156,6 +170,7 @@ packageInfo pool package = flip runSqlPersistMPool pool $ do
     let summary = projectsSummary project
     return (PackageInfo name summary)
 
+-- | Example of depsolving a package name
 depsolvePkg :: ConnectionPool -> T.Text -> IO [T.Text]
 depsolvePkg pool package = do
     result <- runExceptT $ flip runSqlPool pool $ do
@@ -166,17 +181,19 @@ depsolvePkg pool package = do
         Left _            -> return []
         Right assignments -> return assignments
 
+-- | A test using ServantErr
 errTest :: Handler [T.Text]
 errTest = throwError myError
   where
     myError :: ServantErr
     myError = createApiError err503 "test_api_error" "This is a test of an API Error Response"
 
+-- | The JSON response for /recipes/list
 data RecipesListResponse = RecipesListResponse {
-    rlrRecipes  :: [T.Text],
-    rlrOffset   :: Int,
-    rlrLimit    :: Int,
-    rlrTotal    :: Int
+    rlrRecipes  :: [T.Text],                                    -- ^ List of recipe names
+    rlrOffset   :: Int,                                         -- ^ Pagination offset into results
+    rlrLimit    :: Int,                                         -- ^ Pagination limit of results
+    rlrTotal    :: Int                                          -- ^ Total number of recipe names
 } deriving (Show, Eq)
 
 instance ToJSON RecipesListResponse where
@@ -198,6 +215,9 @@ instance FromJSON RecipesListResponse where
 -- | /api/v0/recipes/list
 -- List the names of the available recipes
 --
+-- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
+-- [@branch@]: The branch name
+--
 -- >  {
 -- >      "recipes": [
 -- >          "development",
@@ -211,6 +231,8 @@ instance FromJSON RecipesListResponse where
 -- >      "limit": 20,
 -- >      "total": 6
 -- >  }
+--
+-- TODO Add offset and limit support
 recipesList :: GitLock -> T.Text -> Handler RecipesListResponse
 recipesList repoLock branch = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     -- TODO Figure out how to catch GitError and throw a ServantErr
@@ -223,9 +245,10 @@ recipesList repoLock branch = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     -- handleGitErrors e = createApiError err500 "recipes_list" ("Git Error: " ++ show e)
 
 
+-- | Status of a recipe's workspace
 data WorkspaceChanges = WorkspaceChanges {
-    wcName      :: T.Text,
-    wcChanged   :: Bool
+    wcName      :: T.Text,                                              -- ^ Recipe name
+    wcChanged   :: Bool                                                 -- ^ True when it is newer than the last commit
 } deriving (Show, Eq)
 instance ToJSON WorkspaceChanges where
   toJSON WorkspaceChanges{..} = object [
@@ -239,10 +262,11 @@ instance FromJSON WorkspaceChanges where
     return WorkspaceChanges{..}
 
 
+-- | The JSON response for /recipes/info
 data RecipesInfoResponse = RecipesInfoResponse {
-    rirChanges  :: [WorkspaceChanges],
-    rirRecipes  :: [Recipe],
-    rirErrors   :: [RecipesAPIError]
+    rirChanges  :: [WorkspaceChanges],                                  -- ^ Workspace status for each recipe
+    rirRecipes  :: [Recipe],                                            -- ^ The Recipe record
+    rirErrors   :: [RecipesAPIError]                                    -- ^ Errors reading the recipe
 } deriving (Show, Eq)
 
 instance ToJSON RecipesInfoResponse where
@@ -259,10 +283,14 @@ instance FromJSON RecipesInfoResponse where
     return RecipesInfoResponse{..}
 
 
--- | /api/v0/recipes/info/<recipes>
+-- | /api/v0/recipes/info/\<recipes\>
 -- Return the contents of the recipe, or a list of recipes
 --
--- The 'errors' list may be empty, or may include recipe-specific errors if
+-- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
+-- [@branch@]: The branch name
+-- [@recipes_names@]: A comma separated list of recipe names
+--
+-- The errors list may be empty, or may include recipe-specific errors if
 -- there was a problem retrieving it.
 --
 -- > {
@@ -381,10 +409,11 @@ recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock re
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
+-- | Details about commits to a recipe
 data RecipeChanges = RecipeChanges {
-    rcName      :: T.Text,
-    rcChange    :: [CommitDetails],
-    rcTotal     :: Int
+    rcName      :: T.Text,                                              -- ^ Recipe name
+    rcChange    :: [CommitDetails],                                     -- ^ Details of the commit
+    rcTotal     :: Int                                                  -- ^ Total number of commits
 } deriving (Show, Eq)
 
 instance ToJSON RecipeChanges where
@@ -401,11 +430,12 @@ instance FromJSON RecipeChanges where
     return RecipeChanges{..}
 
 
+-- The JSON response for /recipes/changes
 data RecipesChangesResponse = RecipesChangesResponse {
-    rcrRecipes  :: [RecipeChanges],
-    rcrErrors   :: [RecipesAPIError],
-    rcrOffset   :: Int,
-    rcrLimit    :: Int
+    rcrRecipes  :: [RecipeChanges],                                     -- ^ Changes for each recipe
+    rcrErrors   :: [RecipesAPIError],                                   -- ^ Any errors for the requested changes
+    rcrOffset   :: Int,                                                 -- ^ Pagination offset
+    rcrLimit    :: Int                                                  -- ^ Pagination limit
 } deriving (Show, Eq)
 
 instance ToJSON RecipesChangesResponse where
@@ -424,14 +454,20 @@ instance FromJSON RecipesChangesResponse where
     return RecipesChangesResponse{..}
 
 
--- | /api/v0/recipes/changes/<recipes>
+-- | /api/v0/recipes/changes/\<recipes\>
 -- Return the commit history of the recipes
+--
+-- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
+-- [@branch@]: The branch name
+-- [@recipes_name@]: The recipe name
+-- [@moffset@]: The offset from the start of the results. Defaults to 0
+-- [@mlimit@]: Limit to the number of results to be returned. Defaults to 20
 --
 -- The changes for each listed recipe will have offset and limit applied to them.
 -- This means that there will be cases where changes will be empty, when offset > total
 -- for the recipe.
 --
--- If a recipe commit has been tagged as a new revision the `changes` will include a
+-- If a recipe commit has been tagged as a new revision the changes will include a
 -- `revision` field set to the revision number. If the commit has not been tagged it
 -- will not have this field included.
 --
@@ -480,7 +516,6 @@ instance FromJSON RecipesChangesResponse where
 -- >     "offset": 0,
 -- >     "limit": 20
 -- > }
---
 recipesChanges :: GitLock -> T.Text -> String -> Maybe Int -> Maybe Int -> Handler RecipesChangesResponse
 recipesChanges repoLock branch recipe_names moffset mlimit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     let recipe_name_list = map T.pack (argify [recipe_names])
@@ -524,9 +559,10 @@ recipesChanges repoLock branch recipe_names moffset mlimit = liftIO $ RWL.withRe
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
+-- | JSON status response
 data RecipesStatusResponse = RecipesStatusResponse {
-    rsrStatus :: Bool,
-    rsrErrors :: [RecipesAPIError]
+    rsrStatus :: Bool,                                                  -- ^ Success/Failure of the request
+    rsrErrors :: [RecipesAPIError]                                      -- ^ Errors
 } deriving (Show, Eq)
 
 instance ToJSON RecipesStatusResponse where
@@ -540,11 +576,24 @@ instance FromJSON RecipesStatusResponse where
     rsrErrors <- o .: "errors"
     return RecipesStatusResponse{..}
 
--- | POST `/api/v0/recipes/new`
+
+-- | POST /api/v0/recipes/new
 -- Create or update a recipe.
 --
--- The body of the post is a JSON representation of the recipe, using the same format
--- received by `/api/v0/recipes/info/<recipes>`
+-- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
+-- [@branch@]: The branch name
+-- [@recipe@]: The Recipe record
+--
+-- The body of the post is a JSON or TOML representation of the recipe. If Conten-Type is application/json
+-- it uses the same format received from /api/v0/recipes/info/\<recipes\>, and if it is text/x-toml it uses
+-- the recipe's TOML format for the body.
+--
+-- The response for a successful POST is:
+--
+-- > {
+-- >     "status": true,
+-- >     "errors": []
+-- > }
 recipesNew :: GitLock -> T.Text -> Recipe -> Handler RecipesStatusResponse
 recipesNew repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     result <- catch_recipe_new
@@ -559,8 +608,19 @@ recipesNew repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock)
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- | DELETE /api/v0/recipes/delete/<recipe>
--- Delete the named recipe from the repository
+-- | DELETE /api/v0/recipes/delete/\<recipe\>
+-- Delete the named recipe from the repository branch
+--
+-- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
+-- [@branch@]: The branch name
+-- [@recipe_name@]: The recipe name
+--
+-- The response for a successful DELETE is:
+--
+-- > {
+-- >     "status": true,
+-- >     "errors": []
+-- > }
 recipesDelete :: GitLock -> T.Text -> String -> Handler RecipesStatusResponse
 recipesDelete repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     result <- catch_recipe_delete
@@ -575,8 +635,20 @@ recipesDelete repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock r
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- | POST /api/v0/recipes/undo/<recipe>/<commit>
+-- | POST /api/v0/recipes/undo/\<recipe\>/\<commit\>
 -- Revert a recipe to a previous commit
+--
+-- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
+-- [@branch@]: The branch name
+-- [@recipe_name@]: The recipe name
+-- [@commit@]: The commit to revert to
+--
+-- The response for a successful POST is:
+--
+-- > {
+-- >     "status": true,
+-- >     "errors": []
+-- > }
 recipesUndo :: GitLock -> T.Text -> String -> String -> Handler RecipesStatusResponse
 recipesUndo repoLock branch recipe_name commit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     result <- catch_recipe_undo
@@ -594,8 +666,19 @@ recipesUndo repoLock branch recipe_name commit = liftIO $ RWL.withRead (gitRepoL
 -- | POST /api/v0/recipes/workspace
 -- Update the temporary recipe workspace
 --
--- - The body of the post is a JSON representation of the recipe, using the same format
---   received by `/api/v0/recipes/info/<recipes>` and `/api/v0/recipes/new`
+-- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
+-- [@branch@]: The branch name
+-- [@recipe@]: The Recipe record
+--
+-- The body of the post is the same as /recipes/new/. For more details on the
+-- workspace see "BDCS.API.Workspace"
+--
+-- The response for a successful POST is:
+--
+-- > {
+-- >     "status": true,
+-- >     "errors": []
+-- > }
 recipesWorkspace :: GitLock -> T.Text -> Recipe -> Handler RecipesStatusResponse
 recipesWorkspace repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     result <- catch_recipe_ws
@@ -611,7 +694,20 @@ recipesWorkspace repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock rep
 
 
 -- | POST /api/v0/recipes/tag/<recipe>
--- | Tag the most recent recipe commit as the next revision
+-- Tag the most recent recipe commit as the next revision
+--
+-- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
+-- [@branch@]: The branch name
+-- [@recipe_name@]: The recipe name
+--
+-- If the commit is already tagged it will return False.
+--
+-- The response for a successful POST is:
+--
+-- > {
+-- >     "status": true,
+-- >     "errors": []
+-- > }
 recipesTag :: GitLock -> T.Text -> String -> Handler RecipesStatusResponse
 recipesTag repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     result <- catch_recipe_tag
@@ -626,6 +722,7 @@ recipesTag repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock repo
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
+-- | JSON response for /recipes/diff
 data RecipesDiffResponse = RecipesDiffResponse {
     rdrDiff :: [RecipeDiffEntry]
 } deriving (Eq, Show)
@@ -640,30 +737,24 @@ instance FromJSON RecipesDiffResponse where
     return RecipesDiffResponse{..}
 
 -- | /api/v0/recipes/diff/<recipe>/<from_commit>/<to_commit>
--- Return the diff between the two recipe commits. Set to_commit to NEWEST to use the newest commit.
+-- Return the diff between the two recipe commits.
 --
--- # Arguments
---
--- * `recipe_name` - Recipe name
--- * `from_commit` - The older commit to caclulate the difference from, can also be NEWEST
--- * `to_commit` - The newer commit to calculate the diff. to, can also be NEWEST or WORKSPACE
---
--- # Response
---
--- * JSON response with recipe changes.
---
--- # Errors
+-- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
+-- [@branch@]: The branch name
+-- [@recipe_name@]: The recipe name
+-- [@from_commit@]: The older commit to caclulate the difference from, can also be NEWEST
+-- [@to_commit@]: The newer commit to calculate the diff. to, can also be NEWEST or WORKSPACE
 --
 -- If there is an error retrieving a commit (eg. it cannot find the hash), it will use HEAD
 -- instead and log an error.
 --
 --
--- In addition to the commit hashes listed by a call to `/recipes/changes/<recipe-name>` you
--- can use `NEWEST` to compare the latest commit, and `WORKSPACE` to compare it with
+-- In addition to the commit hashes listed by a call to /recipes/changes/\<recipe-name\> you
+-- can use NEWEST to compare the latest commit, and WORKSPACE to compare it with
 -- the current temporary workspace version of the recipe. eg. to see what the differences
--- are between the current workspace and most recent commit of `http-server` you would call:
+-- are between the current workspace and most recent commit of http-server you would call:
 --
--- `/recipes/diff/http-server/NEWEST/WORKSPACE`
+-- > /recipes/diff/http-server/NEWEST/WORKSPACE
 --
 -- Each entry in the response's diff object contains the old recipe value and the new one.
 -- If old is null and new is set, then it was added.
@@ -781,4 +872,3 @@ recipesDiff repoLock branch recipe_name from_commit to_commit = liftIO $ RWL.wit
 -- | * `/api/v0/recipes/depsolve/<recipes>`
 -- |  - Return the recipe and summary information about all of its modules and packages.
 -- |  - [Example JSON](fn.recipes_depsolve.html#examples)
-

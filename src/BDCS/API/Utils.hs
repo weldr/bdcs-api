@@ -16,6 +16,8 @@
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 {-# LANGUAGE ScopedTypeVariables #-}
 
+{-| Utility functions for "BDCS.API"
+-}
 module BDCS.API.Utils(argify,
                       GitLock(..),
                       maybeIO,
@@ -28,17 +30,21 @@ import           Control.Monad (liftM)
 import           Data.List.Split (splitOn)
 import qualified GI.Ggit as Git
 
--- Git Repository and its RWLock
+-- | Git Repository and its RWLock
+--
+-- This is used to control access to the Git repository. Users should take the lock like this:
+--
+-- > RWL.withRead (gitRepoLock repoLock)
 data GitLock = GitLock
   { gitRepoLock :: RWL.RWLock
   , gitRepo     :: Git.Repository
   }
 
--- | Turn exceptions from an action into Nothing
+-- | Turn exceptions from an action into 'Nothing'
 maybeIO :: IO a -> IO (Maybe a)
 maybeIO act = handle (\(_::SomeException) -> (return Nothing)) (Just `liftM` act)
 
--- | Throw an IO error when a Maybe is Nothing
+-- | Throw an IO error when a 'Maybe' is 'Nothing'
 maybeThrow :: (Exception e) => e -> Maybe a -> IO a
 maybeThrow err Nothing = throwIO err
 maybeThrow _ (Just v)  = return v

@@ -18,6 +18,9 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
+{-| Implement a ContentType for 'TOML' so that POSTing text/x-toml with Servant will parse it.
+    Add [TOML] to the Servant API to enable handling of it. See "BDCS.API.V0" for an example.
+-}
 module BDCS.API.TOMLMediaType(TOML,
                               ToTOML(..),
                               FromTOML(..))
@@ -27,25 +30,29 @@ import qualified Data.ByteString.Lazy as BSL
 import           Network.HTTP.Media((//))
 import           Servant
 
--- Implement a ContentType for TOML so that POSTing text/x-toml with Servant will parse it
--- Add [TOML] to the Servant API to enable handling of it. See V0.hs for an example.
+-- | Used in the Servant ReqBody
 data TOML
 
+-- | Use Content-Type: text/x-toml
 instance Accept TOML where
     contentType _ = "text" // "x-toml"
 
--- toTOML and parseTOML need to be implemented for the type being converted.
--- See Recipe.hs for an example.
+-- | toTOML needs to be implemented for the type being converted.
+-- See "BDCS.API.Recipe" for an example.
 class ToTOML a where
     toTOML :: a -> BSL.ByteString
 
+-- | parseTOML needs to be implemented for the type being converted.
+-- See "BDCS.API.Recipe" for an example.
 class FromTOML a where
     parseTOML :: BSL.ByteString -> Either String a
 
--- This is what Servant uses to connect its handling of ContentType to the
--- actual parsing into the destination type
+-- | mimeRender is what Servant uses to connect its handling
+-- of ContentType to the actual parsing into the destination type
 instance ToTOML a => MimeRender TOML a where
     mimeRender _ = toTOML
 
+-- | mimeUnrender is what Servant uses to connect its handling
+-- of ContentType to the actual parsing into the destination type
 instance FromTOML a => MimeUnrender TOML a where
     mimeUnrender _ = parseTOML
