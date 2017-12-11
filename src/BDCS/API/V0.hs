@@ -595,7 +595,7 @@ instance FromJSON RecipesStatusResponse where
 -- >     "errors": []
 -- > }
 recipesNew :: GitLock -> T.Text -> Recipe -> Handler RecipesStatusResponse
-recipesNew repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesNew repoLock branch recipe = liftIO $ RWL.withWrite (gitRepoLock repoLock) $ do
     result <- catch_recipe_new
     case result of
         Left err -> return $ RecipesStatusResponse False [RecipesAPIError "Unknown" (T.pack err)]
@@ -622,7 +622,7 @@ recipesNew repoLock branch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock)
 -- >     "errors": []
 -- > }
 recipesDelete :: GitLock -> T.Text -> String -> Handler RecipesStatusResponse
-recipesDelete repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesDelete repoLock branch recipe_name = liftIO $ RWL.withWrite (gitRepoLock repoLock) $ do
     result <- catch_recipe_delete
     case result of
         Left err -> return $ RecipesStatusResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
@@ -650,7 +650,7 @@ recipesDelete repoLock branch recipe_name = liftIO $ RWL.withRead (gitRepoLock r
 -- >     "errors": []
 -- > }
 recipesUndo :: GitLock -> T.Text -> String -> String -> Handler RecipesStatusResponse
-recipesUndo repoLock branch recipe_name commit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesUndo repoLock branch recipe_name commit = liftIO $ RWL.withWrite (gitRepoLock repoLock) $ do
     result <- catch_recipe_undo
     case result of
         Left err -> return $ RecipesStatusResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
