@@ -48,7 +48,7 @@ getStatus :: ClientM ServerStatus
 getPackage :: T.Text -> ClientM PackageInfo
 getDeps :: T.Text -> ClientM [T.Text]
 getErr :: ClientM [T.Text]
-getRecipes :: ClientM RecipesListResponse
+getRecipes :: Maybe Int -> Maybe Int -> ClientM RecipesListResponse
 getRecipesInfo :: String -> ClientM RecipesInfoResponse
 getRecipesChanges :: String -> Maybe Int -> Maybe Int -> ClientM RecipesChangesResponse
 postRecipesNew :: Recipe -> ClientM RecipesStatusResponse
@@ -64,8 +64,11 @@ getStatus :<|> getPackage :<|> getDeps :<|> getErr
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.
-recipesListResponse :: RecipesListResponse
-recipesListResponse = RecipesListResponse ["glusterfs", "http-server", "kubernetes"] 0 0 3
+recipesListResponse1 :: RecipesListResponse
+recipesListResponse1 = RecipesListResponse ["glusterfs", "http-server", "kubernetes"] 0 20 3
+
+recipesListResponse2 :: RecipesListResponse
+recipesListResponse2 = RecipesListResponse ["http-server"] 1 1 3
 
 missingRecipeResponse :: RecipesInfoResponse
 missingRecipeResponse = RecipesInfoResponse [] [] [RecipesAPIError "missing-recipe" "missing-recipe.toml is not present on branch master"]
@@ -216,7 +219,7 @@ recipesDeleteTest = do
     -- Is the recipe in the list?
     recipe_in_list :: ClientM Bool
     recipe_in_list = do
-        response <- getRecipes
+        response <- getRecipes Nothing Nothing
         return $ "A-Test-Recipe" `elem` rlrRecipes response
 
     -- Delete it from the list
@@ -227,7 +230,7 @@ recipesDeleteTest = do
 
     -- Is it NOT in the list?
     recipe_not_in_list = do
-        response <- getRecipes
+        response <- getRecipes Nothing Nothing
         return $ "A-Test-Recipe" `notElem` rlrRecipes response
 
 -- | Check reverting a recipe to a previous commit
@@ -316,7 +319,10 @@ spec = do
                 try env getStatus `shouldReturn` ServerStatus "0.0.0" "0" "0" False
 
             it "list the available recipes" $ \env ->
-                try env getRecipes `shouldReturn` recipesListResponse
+                try env (getRecipes Nothing Nothing) `shouldReturn` recipesListResponse1
+
+            it "list recipes with offset and limit" $ \env ->
+                try env (getRecipes (Just 1) (Just 1)) `shouldReturn` recipesListResponse2
 
             it "Get a non-existant recipe's info" $ \env ->
                 try env (getRecipesInfo "missing-recipe") `shouldReturn` missingRecipeResponse

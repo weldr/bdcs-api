@@ -28,17 +28,17 @@
 {-| API v0 routes
 -}
 module BDCS.API.V0(PackageInfo(..),
-                   RecipesListResponse(..),
-                   RecipesInfoResponse(..),
-                   RecipesChangesResponse(..),
-                   RecipesDiffResponse(..),
-                   RecipesStatusResponse(..),
-                   RecipesAPIError(..),
-                   RecipeChanges(..),
-                   WorkspaceChanges(..),
-                   V0API,
-                   v0ApiServer)
-  where
+               RecipesListResponse(..),
+               RecipesInfoResponse(..),
+               RecipesChangesResponse(..),
+               RecipesDiffResponse(..),
+               RecipesStatusResponse(..),
+               RecipesAPIError(..),
+               RecipeChanges(..),
+               WorkspaceChanges(..),
+               V0API,
+               v0ApiServer)
+where
 
 import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
@@ -66,6 +66,7 @@ import           Utils.Monad(mapMaybeM)
 
 
 {-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
+{-# ANN module ("HLint: ignore Reduce duplication" :: String) #-}
 
 -- | Information about Packages
 data PackageInfo = PackageInfo
@@ -114,7 +115,8 @@ instance FromJSON RecipesAPIError where
 type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
         :<|> "depsolve" :> Capture "package" T.Text :> Get '[JSON] [T.Text]
         :<|> "errtest"  :> Get '[JSON] [T.Text]
-        :<|> "recipes"  :> "list" :> Get '[JSON] RecipesListResponse
+        :<|> "recipes"  :> "list" :> QueryParam "offset" Int
+                                  :> QueryParam "limit" Int :> Get '[JSON] RecipesListResponse
         :<|> "recipes"  :> "info" :> Capture "recipes" String :> Get '[JSON] RecipesInfoResponse
         :<|> "recipes"  :> "changes" :> Capture "recipes" String
                                      :> QueryParam "offset" Int
@@ -148,7 +150,7 @@ v0ApiServer repoLock pool = pkgInfoH
     pkgInfoH package     = liftIO $ packageInfo pool package
     depsolvePkgH package = liftIO $ depsolvePkg pool package
     errTestH             = errTest
-    recipesListH         = recipesList repoLock "master"
+    recipesListH offset limit = recipesList repoLock "master" offset limit
     recipesInfoH recipes = recipesInfo repoLock "master" recipes
     recipesChangesH recipes offset limit = recipesChanges repoLock "master" recipes offset limit
     recipesNewH recipe   = recipesNew repoLock "master" recipe
@@ -211,7 +213,6 @@ instance FromJSON RecipesListResponse where
     rlrTotal   <- o .: "total"
     return RecipesListResponse{..}
 
-
 -- | /api/v0/recipes/list
 -- List the names of the available recipes
 --
@@ -231,18 +232,28 @@ instance FromJSON RecipesListResponse where
 -- >      "limit": 20,
 -- >      "total": 6
 -- >  }
---
--- TODO Add offset and limit support
-recipesList :: GitLock -> T.Text -> Handler RecipesListResponse
-recipesList repoLock branch = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesList :: GitLock -> T.Text -> Maybe Int -> Maybe Int -> Handler RecipesListResponse
+recipesList repoLock branch moffset mlimit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     -- TODO Figure out how to catch GitError and throw a ServantErr
     filenames <- listBranchFiles (gitRepo repoLock) branch
     let recipes = sortBy caseInsensitive $ map (T.dropEnd 5) filenames
-    return $ RecipesListResponse recipes 0 0 (length recipes)
+    return $ RecipesListResponse (apply_limits recipes) offset limit (length recipes)
   where
     caseInsensitive a b = T.toCaseFold a `compare` T.toCaseFold b
     -- handleGitErrors :: GitError -> ServantErr
     -- handleGitErrors e = createApiError err500 "recipes_list" ("Git Error: " ++ show e)
+
+    -- | Return the offset or the default
+    offset :: Int
+    offset = fromMaybe 0 moffset
+
+    -- | Return the limit or the default
+    limit :: Int
+    limit  = fromMaybe 20 mlimit
+
+    -- | Apply limit and offset to a list
+    apply_limits :: [a] -> [a]
+    apply_limits l = take limit $ drop offset l
 
 
 -- | Status of a recipe's workspace
