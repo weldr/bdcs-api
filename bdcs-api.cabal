@@ -27,37 +27,37 @@ library
                         BDCS.API.Workspace
     -- other-modules:
     -- other-extensions:
-    build-depends:      base >=4.9 && <4.10,
-                        aeson,
+    build-depends:      aeson >= 1.0.0.0 && < 1.3.0.0,
+                        base >= 4.9 && < 5.0,
                         bdcs,
-                        bytestring,
-                        concurrent-extra,
-                        cond,
-                        containers,
-                        directory,
-                        filepath,
-                        gi-gio,
-                        gi-ggit,
-                        gi-glib,
-                        haskell-gi-base,
-                        http-media,
-                        http-types,
-                        htoml,
-                        monad-logger,
-                        monad-loops,
-                        mtl,
-                        persistent,
-                        persistent-sqlite,
-                        semver,
-                        servant-options,
-                        servant-server,
-                        split,
-                        string-conversions,
-                        temporary,
-                        text,
-                        wai,
-                        wai-cors,
-                        warp
+                        bytestring >= 0.10 && < 0.11,
+                        concurrent-extra >= 0.7.0 && < 0.8,
+                        cond >= 0.4.1.1 && < 0.5.0.0,
+                        containers >= 0.5.7.1 && < 0.6,
+                        directory >= 1.3.0.0 && < 1.4.0.0,
+                        filepath >= 1.4.1.1 && < 1.5.0.0,
+                        gi-gio >= 2.0.14 && < 2.1.0,
+                        gi-ggit >= 1.0.1 && < 1.1,
+                        gi-glib >= 2.0.14 && < 2.1.0,
+                        haskell-gi-base >= 0.20.3 && < 0.21,
+                        htoml >= 1.0.0 && < 1.1,
+                        http-media >= 0.7.1 && < 0.8,
+                        http-types >= 0.9.1 && < 0.10,
+                        monad-logger >= 0.3.20.2 && < 0.4.0,
+                        monad-loops >= 0.4.0 && < 0.5,
+                        mtl >= 2.2.1 && < 2.3,
+                        persistent >= 2.7.0 && < 2.8.0,
+                        persistent-sqlite >= 2.6.0 && < 2.7.0,
+                        semver >= 0.3.3 && < 0.4,
+                        servant-options >= 0.1.0 && < 0.2,
+                        servant-server >= 0.12 && < 0.13,
+                        split >= 0.2.3 && < 0.3,
+                        string-conversions >= 0.4.0 && < 0.5,
+                        temporary >= 1.2.0.4 && < 1.3.0.0,
+                        text >= 1.2.2.0 && < 1.3,
+                        wai >= 3.2.1 && < 3.3,
+                        wai-cors >= 0.2.6 && < 0.3,
+                        warp >= 3.2.13 && < 3.3
     hs-source-dirs:     src
     default-language:   Haskell2010
     ghc-options:        -Wall
@@ -65,9 +65,9 @@ library
 executable bdcs-api-server
     main-is:            bdcs-api-server.hs
     hs-source-dirs:     tools
-    build-depends:      base >=4.9 && <4.10,
+    build-depends:      base >= 4.9 && < 5.0,
                         bdcs-api,
-                        gitrev >= 1.3.1
+                        gitrev >= 1.3.1 && < 1.4
     other-modules:      Paths_bdcs_api
     default-language:   Haskell2010
     ghc-options:        -Wall
@@ -77,22 +77,22 @@ test-suite spec
   main-is:              Spec.hs
   hs-source-dirs:       tests
   ghc-options:          -Wall
-  build-depends:        base,
-                        aeson,
+  build-depends:        base >= 4.9 && < 5.0,
+                        aeson >= 1.0.0.0 && < 1.3.0.0,
                         bdcs-api,
-                        bytestring,
-                        cond,
-                        directory,
-                        filepath,
-                        hspec,
-                        http-client,
-                        monad-loops,
-                        servant-client,
-                        servant-server,
-                        string-conversions,
-                        string-qq,
-                        temporary,
-                        text,
-                        wai,
-                        warp
+                        bytestring >= 0.10 && < 0.11,
+                        cond >= 0.4.1.1 && < 0.5.0.0,
+                        directory >= 1.3.0.0 && < 1.4.0.0,
+                        filepath >= 1.4.1.1 && < 1.5.0.0,
+                        hspec == 2.*,
+                        http-client >= 0.5.7.0 && < 0.6.0.0,
+                        monad-loops >= 0.4.0 && < 0.5,
+                        servant-client >= 0.12.0.1 && < 0.13.0.0,
+                        servant-server >= 0.12 && < 0.13,
+                        string-conversions >= 0.4.0 && < 0.5,
+                        string-qq >= 0.0.2 && < 0.1.0,
+                        temporary >= 1.2.0.4 && < 1.3.0.0,
+                        text >= 1.2.2.0 && < 1.3,
+                        wai >= 3.2.1 && < 3.3,
+                        warp >= 3.2.13 && < 3.3
   default-language:     Haskell2010
