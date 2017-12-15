@@ -51,6 +51,7 @@ import           BDCS.Depclose(depclose)
 import           BDCS.Depsolve(formulaToCNF, solveCNF)
 import           BDCS.Groups(groupIdToNevra)
 import           BDCS.Projects(findProject, getProject)
+import           BDCS.Utils.Monad(mapMaybeM)
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import qualified Control.Exception as CE
 import           Control.Monad.Except
@@ -62,7 +63,6 @@ import           Database.Persist.Sql
 import           Data.GI.Base(GError(..))
 import qualified GI.Ggit as Git
 import           Servant
-import           Utils.Monad(mapMaybeM)
 
 
 {-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
