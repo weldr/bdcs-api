@@ -262,7 +262,7 @@ recipesDiffTest = do
         response_1 <- getRecipesDiff "A Test Recipe" (T.unpack first_commit) "NEWEST"
         let old_version = rdtVersion $ rdeOld (rdrDiff response_1 !! 0)
         let new_version = rdtVersion $ rdeNew (rdrDiff response_1 !! 0)
-        return $ old_version /= new_version && new_version == Just "0.1.0"
+        return $ old_version /= new_version && new_version == Just "0.1.9"
 
     workspace_diff = do
         response <- getRecipesChanges "A Test Recipe" Nothing Nothing
@@ -281,7 +281,7 @@ recipesDiffTest = do
         response_1 <- getRecipesDiff "A Test Recipe" (T.unpack first_commit) (T.unpack newer_commit)
         let old_version = rdtVersion $ rdeOld (rdrDiff response_1 !! 0)
         let new_version = rdtVersion $ rdeNew (rdrDiff response_1 !! 0)
-        return $ old_version /= new_version && new_version == Just "0.1.7"
+        return $ old_version /= new_version && new_version == Just "0.1.8"
 
 
 -- | Setup the temporary repo directory with some example recipes

@@ -468,7 +468,7 @@ listRecipeCommits repo branch recipe_name = listCommits repo branch (recipeTomlF
 listCommits :: Git.Repository -> T.Text -> T.Text -> IO [CommitDetails]
 listCommits repo branch filename = do
     revwalk <- Git.revisionWalkerNew repo >>= maybeThrow NewWalkerError
-    Git.revisionWalkerSetSortMode revwalk [Git.SortModeTime]
+    Git.revisionWalkerSetSortMode revwalk [Git.SortModeReverse]
     let branch_ref = T.pack $ printf "refs/heads/%s" branch
     Git.revisionWalkerPushRef revwalk branch_ref
 
@@ -1012,6 +1012,7 @@ data TestError =
   | DeleteFailedError FilePath
   | RecipeReadError
   | RecipeMismatchError [Recipe]
+  | ChangesOrderError
   deriving (Eq, Show)
 
 instance Exception TestError
@@ -1091,7 +1092,7 @@ testGitRepo tmpdir = do
 
     -- Revert the delete
     commit_id <- Git.oIdNewFromString (cdCommit $ head http_commits) >>= maybeThrow NewOIdError
-    void $ revertFileCommit repo "master" "http-server.toml" commit_id
+    revert_id <- revertFileCommit repo "master" "http-server.toml" commit_id
 
     -- List the files on master
     putStrLn "    - Check that http-server.toml has been restored"
@@ -1108,6 +1109,11 @@ testGitRepo tmpdir = do
     commits <- listCommits repo "master" "http-server.toml"
     let revision = cdRevision (head commits)
     unless (revision == Just 1) (throwIO $ CommitRevisionError commits)
+
+    -- Make sure the first listed commit is the reverted commit
+    let top_commit = cdCommit $ head commits
+    revert_hash <- fromJust <$> Git.oIdToString revert_id
+    unless (top_commit == revert_hash) (throwIO $ ChangesOrderError)
 
     return True
 
