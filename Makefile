@@ -6,8 +6,9 @@ sandbox:
 	[ -d .cabal-sandbox ] || cabal sandbox init
 
 bdcs-api-server: sandbox
-	cabal sandbox add-source /bdcs/
 	cabal update
+	# happy appears to be required for warp(?) and won't be installed by --dependencies-only
+	[ -x .cabal-sandbox/bin/happy ] || cabal install happy
 	cabal install --dependencies-only
 	cabal configure
 	cabal build
@@ -21,7 +22,9 @@ hlint: sandbox
 	cabal exec hlint .
 
 tests: sandbox
-	cabal sandbox add-source /bdcs/
+	cabal update
+	# happy appears to be required for warp(?) and won't be installed by --dependencies-only
+	[ -x .cabal-sandbox/bin/happy ] || cabal install happy
 	cabal install --dependencies-only --enable-tests
 	cabal configure --enable-tests --enable-coverage
 	cabal build
