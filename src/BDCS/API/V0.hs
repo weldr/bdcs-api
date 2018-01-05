@@ -47,10 +47,11 @@ import           BDCS.API.TOMLMediaType
 import           BDCS.API.Utils(GitLock(..), argify)
 import           BDCS.API.Workspace
 import           BDCS.DB
-import           BDCS.Depclose(depclose)
+import           BDCS.Depclose(depcloseNames)
 import           BDCS.Depsolve(formulaToCNF, solveCNF)
 import           BDCS.Groups(groupIdToNevra)
 import           BDCS.Projects(findProject, getProject)
+import           BDCS.RPM.Utils(splitFilename)
 import           BDCS.Utils.Monad(mapMaybeM)
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import qualified Control.Exception as CE
@@ -113,7 +114,7 @@ instance FromJSON RecipesAPIError where
 
 -- These are the API routes. This is not documented in haddock because it doesn't format it correctly
 type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
-        :<|> "depsolve" :> Capture "package" T.Text :> Get '[JSON] [T.Text]
+        :<|> "projects" :> "depsolve" :> Capture "projects" String :> Get '[JSON] ProjectsDepsolveResponse
         :<|> "errtest"  :> Get '[JSON] [T.Text]
         :<|> "recipes"  :> "list" :> QueryParam "offset" Int
                                   :> QueryParam "limit" Int :> Get '[JSON] RecipesListResponse
@@ -135,7 +136,7 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
-                       :<|> depsolvePkgH
+                       :<|> projectsDepsolveH
                        :<|> errTestH
                        :<|> recipesListH
                        :<|> recipesInfoH
@@ -148,7 +149,7 @@ v0ApiServer repoLock pool = pkgInfoH
                        :<|> recipesDiffH
   where
     pkgInfoH package     = liftIO $ packageInfo pool package
-    depsolvePkgH package = liftIO $ depsolvePkg pool package
+    projectsDepsolveH projects = projectsDepsolve pool projects
     errTestH             = errTest
     recipesListH offset limit = recipesList repoLock "master" offset limit
     recipesInfoH recipes = recipesInfo repoLock "master" recipes
@@ -171,17 +172,6 @@ packageInfo pool package = flip runSqlPersistMPool pool $ do
     let name = projectsName project
     let summary = projectsSummary project
     return (PackageInfo name summary)
-
--- | Example of depsolving a package name
-depsolvePkg :: ConnectionPool -> T.Text -> IO [T.Text]
-depsolvePkg pool package = do
-    result <- runExceptT $ flip runSqlPool pool $ do
-        formula <- depclose ["x86_64"] [package]
-        solution <- solveCNF (formulaToCNF formula)
-        mapMaybeM groupIdToNevra $ map fst $ filter snd solution
-    case result of
-        Left _            -> return []
-        Right assignments -> return assignments
 
 -- | A test using ServantErr
 errTest :: Handler [T.Text]
@@ -877,9 +867,75 @@ recipesDiff repoLock branch recipe_name from_commit to_commit = liftIO $ RWL.wit
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
--- | * `/api/v0/recipes/freeze/<recipes>`
--- |  - Return the contents of the recipe with frozen dependencies instead of expressions.
--- |  - [Example JSON](fn.recipes_freeze.html#examples)
 -- | * `/api/v0/recipes/depsolve/<recipes>`
 -- |  - Return the recipe and summary information about all of its modules and packages.
 -- |  - [Example JSON](fn.recipes_depsolve.html#examples)
+
+-- | * `/api/v0/recipes/freeze/<recipes>`
+-- |  - Return the contents of the recipe with frozen dependencies instead of expressions.
+-- |  - [Example JSON](fn.recipes_freeze.html#examples)
+
+-- | Package build details
+data PackageNEVRA = PackageNEVRA {
+     pnName       :: T.Text
+   , pnEpoch      :: Maybe T.Text
+   , pnVersion    :: T.Text
+   , pnRelease    :: T.Text
+   , pnArch       :: T.Text
+} deriving (Show, Eq)
+
+instance ToJSON PackageNEVRA where
+  toJSON PackageNEVRA{..} = object [
+        "name"    .= pnName
+      , "epoch"   .= fromMaybe "0" pnEpoch
+      , "version" .= pnVersion
+      , "release" .= pnRelease
+      , "arch"    .= pnArch ]
+
+instance FromJSON PackageNEVRA where
+  parseJSON = withObject "package NEVRA" $ \o -> do
+      pnName    <- o .: "name"
+      pnEpoch   <- o .: "epoch"
+      pnVersion <- o .: "version"
+      pnRelease <- o .: "release"
+      pnArch    <- o .: "arch"
+      return PackageNEVRA{..}
+
+-- Make a PackageNEVRA from a tuple of NEVRA info.
+mkPackageNEVRA :: (T.Text, Maybe T.Text, T.Text, T.Text, T.Text) -> PackageNEVRA
+mkPackageNEVRA (name, epoch, version, release, arch) = PackageNEVRA name epoch version release arch
+
+-- | The JSON response for /projects/depsolve/<projects>
+data ProjectsDepsolveResponse = ProjectsDepsolveResponse {
+    pdrProjects  :: [PackageNEVRA]                                      -- ^List of dependencies
+} deriving (Show, Eq)
+
+instance ToJSON ProjectsDepsolveResponse where
+  toJSON ProjectsDepsolveResponse{..} = object [
+      "projects" .= pdrProjects ]
+
+instance FromJSON ProjectsDepsolveResponse where
+  parseJSON = withObject "/projects/depsolve response" $ \o -> do
+    pdrProjects <- o .: "projects"
+    return ProjectsDepsolveResponse{..}
+
+-- | /api/v0/projects/depsolve/<projects>
+-- Return the dependencies of a comma separated list of projects
+projectsDepsolve :: ConnectionPool -> String -> Handler ProjectsDepsolveResponse
+projectsDepsolve pool project_names = do
+        let project_name_list = map T.pack (argify [project_names])
+        project_deps <- liftIO $ depsolveProjects pool project_name_list
+        return $ ProjectsDepsolveResponse project_deps
+
+-- | Depsolve a list of project names, returning a list of PackageNEVRA
+-- If there is an error it returns an empty list
+depsolveProjects :: ConnectionPool -> [T.Text] -> IO [PackageNEVRA]
+depsolveProjects pool project_name_list = do
+    result <- runExceptT $ flip runSqlPool pool $ do
+        -- XXX Need to properly deal with arches
+        formula <- depcloseNames ["x86_64"] project_name_list
+        solution <- solveCNF (formulaToCNF formula)
+        mapMaybeM groupIdToNevra $ map fst $ filter snd solution
+    case result of
+        Left  e           -> return []
+        Right assignments -> return $ map (mkPackageNEVRA . splitFilename) assignments
