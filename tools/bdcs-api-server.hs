@@ -42,7 +42,7 @@ main = do
     when (length args < 2) $ do
         usage
         exitFailure
-    let sqliteDbPath = args !! 0
-    let gitRepoPath = args !! 1
+    let sqliteDbPath = args !! 1
+    let gitRepoPath = args !! 2
 
     runServer (optPort opts) gitRepoPath sqliteDbPath
