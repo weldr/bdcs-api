@@ -367,7 +367,7 @@ recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock re
 
     oneRecipeInfo :: T.Text -> [WorkspaceChanges] -> [Recipe] -> [RecipesAPIError] -> IO ([WorkspaceChanges], [Recipe], [RecipesAPIError])
     oneRecipeInfo recipe_name changes_list recipes_list errors_list = do
-        result <- getRecipeInfo recipe_name
+        result <- getRecipeInfo repoLock branch recipe_name
         return (new_changes result, new_recipes result, new_errors result)
       where
         new_errors :: Either String (Bool, Recipe) -> [RecipesAPIError]
@@ -382,29 +382,30 @@ recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock re
         new_recipes (Right (_, recipe)) = recipe:recipes_list
         new_recipes (Left _)            = recipes_list
 
-    -- Get the recipe from the workspace or from git
-    getRecipeInfo :: T.Text -> IO (Either String (Bool, Recipe))
-    getRecipeInfo recipe_name = do
-        --   read the workspace recipe if it exists, errors are mapped to Nothing
-        ws_recipe <- catch_ws_recipe recipe_name
-        --   read the git recipe (if it exists), Errors are mapped to Left
-        git_recipe <- catch_git_recipe recipe_name
+-- | Get the recipe from the workspace or from git
+-- If there is neither workspace or git recipes then an error is returned.
+getRecipeInfo :: GitLock -> T.Text -> T.Text -> IO (Either String (Bool, Recipe))
+getRecipeInfo repoLock branch recipe_name = do
+    --   read the workspace recipe if it exists, errors are mapped to Nothing
+    ws_recipe <- catch_ws_recipe
+    --   read the git recipe (if it exists), Errors are mapped to Left
+    git_recipe <- catch_git_recipe
 
-        case (ws_recipe, git_recipe) of
-            (Nothing,     Left e)       -> return $ Left e
-            (Just recipe, Left _)       -> return $ Right (True, recipe)
-            (Nothing,     Right recipe) -> return $ Right (False, recipe)
-            (Just ws_r,   Right git_r)  -> return $ Right (ws_r == git_r, ws_r)
-
+    case (ws_recipe, git_recipe) of
+        (Nothing,     Left e)       -> return $ Left e
+        (Just recipe, Left _)       -> return $ Right (True, recipe)
+        (Nothing,     Right recipe) -> return $ Right (False, recipe)
+        (Just ws_r,   Right git_r)  -> return $ Right (ws_r == git_r, ws_r)
+  where
     -- | Read the recipe from the workspace, and convert WorkspaceErrors into Nothing
-    catch_ws_recipe :: T.Text -> IO (Maybe Recipe)
-    catch_ws_recipe recipe_name =
+    catch_ws_recipe :: IO (Maybe Recipe)
+    catch_ws_recipe =
         CE.catch (workspaceRead (gitRepo repoLock) branch recipe_name)
                  (\(_ :: WorkspaceError) -> return Nothing)
 
     -- | Read the recipe from git, and convert errors into Left descriptions of what went wrong.
-    catch_git_recipe :: T.Text -> IO (Either String Recipe)
-    catch_git_recipe recipe_name =
+    catch_git_recipe :: IO (Either String Recipe)
+    catch_git_recipe =
         CE.catches (readRecipeCommit (gitRepo repoLock) branch recipe_name Nothing)
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
