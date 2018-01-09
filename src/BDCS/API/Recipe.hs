@@ -22,6 +22,7 @@
     It can be converted to and from TOML and JSON when needed.
 -}
 module BDCS.API.Recipe(bumpVersion,
+                       getAllRecipeProjects,
                        parseRecipe,
                        recipeTOML,
                        recipeTomlFilename,
@@ -31,8 +32,10 @@ module BDCS.API.Recipe(bumpVersion,
   where
 
 import           BDCS.API.TOMLMediaType
+import           BDCS.API.Utils(caseInsensitive)
 import           Data.Aeson
 import           Data.Aeson.Types(Result(..))
+import           Data.List(nub, sortBy)
 import           Data.Maybe(fromMaybe)
 import qualified Data.SemVer as SV
 import           Data.String.Conversions(cs)
@@ -180,3 +183,7 @@ recipeBumpVersion :: Recipe -> Maybe String -> Either String Recipe
 recipeBumpVersion recipe prev_version = case bumpVersion prev_version (rVersion recipe) of
     Right version -> Right recipe { rVersion = Just version }
     Left  err     -> Left  err
+
+-- | Return a sorted list of the unique module+packages in a recipe
+getAllRecipeProjects :: Recipe -> [String]
+getAllRecipeProjects recipe = sortBy caseInsensitive $ nub $ map rmName (rModules recipe ++ rPackages recipe)
