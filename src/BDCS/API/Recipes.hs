@@ -59,7 +59,7 @@ module BDCS.API.Recipes(openOrCreateRepo,
   where
 
 import           BDCS.API.Recipe
-import           BDCS.API.Utils(maybeThrow)
+import           BDCS.API.Utils(caseInsensitive, maybeThrow)
 import           BDCS.API.Workspace
 import           Control.Conditional(ifM, whenM)
 import           Control.Exception
@@ -970,12 +970,6 @@ recipeDiff oldRecipe newRecipe = do
     -- Only call this with module names that are known to be in the list
     get_module :: String -> [RecipeModule] -> RecipeModule
     get_module module_name module_list = fromJust $ find (\e -> rmName e == module_name) module_list
-
-    -- | Compare 2 strings case-insensitively
-    --
-    -- Takes into account unicode
-    caseInsensitive :: String -> String -> Ordering
-    caseInsensitive a b = T.toCaseFold (T.pack a) `compare` T.toCaseFold (T.pack b)
 
 
 -- =========================

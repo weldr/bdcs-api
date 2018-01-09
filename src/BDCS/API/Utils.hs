@@ -19,6 +19,7 @@
 {-| Utility functions for "BDCS.API"
 -}
 module BDCS.API.Utils(argify,
+                      caseInsensitive,
                       GitLock(..),
                       maybeIO,
                       maybeThrow)
@@ -28,6 +29,7 @@ import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Exception
 import           Control.Monad (liftM)
 import           Data.List.Split (splitOn)
+import qualified Data.Text as T
 import qualified GI.Ggit as Git
 
 -- | Git Repository and its RWLock
@@ -52,3 +54,9 @@ maybeThrow _ (Just v)  = return v
 -- | Take a list of possiby comma, or comma-space, separated options and turn it into a list of options
 argify :: Foldable t => t String -> [String]
 argify xs = filter (/= "") $ concatMap (splitOn ",") xs
+
+-- | Compare 2 strings case-insensitively
+--
+-- Takes into account unicode
+caseInsensitive :: String -> String -> Ordering
+caseInsensitive a b = T.toCaseFold (T.pack a) `compare` T.toCaseFold (T.pack b)
