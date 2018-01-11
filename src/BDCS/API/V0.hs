@@ -56,7 +56,7 @@ import           BDCS.DB
 import           BDCS.Depclose(depcloseNames)
 import           BDCS.Depsolve(formulaToCNF, solveCNF)
 import           BDCS.Groups(groupIdToNevra)
-import           BDCS.Projects(findProject, getProject)
+import           BDCS.Projects(findProject, getProject, allProjects)
 import           BDCS.RPM.Utils(splitFilename)
 import           BDCS.Utils.Monad(mapMaybeM)
 import qualified Control.Concurrent.ReadWriteLock as RWL
@@ -120,6 +120,8 @@ instance FromJSON RecipesAPIError where
 
 -- These are the API routes. This is not documented in haddock because it doesn't format it correctly
 type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
+        :<|> "projects" :> "list" :> QueryParam "offset" Int
+                                  :> QueryParam "limit" Int :> Get '[JSON] ProjectsListResponse
         :<|> "projects" :> "depsolve" :> Capture "projects" String :> Get '[JSON] ProjectsDepsolveResponse
         :<|> "errtest"  :> Get '[JSON] [T.Text]
         :<|> "recipes"  :> "list" :> QueryParam "offset" Int
@@ -144,6 +146,7 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
 v0ApiServer repoLock pool = pkgInfoH
+                       :<|> projectsListH
                        :<|> projectsDepsolveH
                        :<|> errTestH
                        :<|> recipesListH
@@ -159,6 +162,7 @@ v0ApiServer repoLock pool = pkgInfoH
                        :<|> recipesFreezeH
   where
     pkgInfoH package     = liftIO $ packageInfo pool package
+    projectsListH offset limit = projectsList pool offset limit
     projectsDepsolveH projects = projectsDepsolve pool projects
     errTestH             = errTest
     recipesListH offset limit = recipesList repoLock "master" offset limit
@@ -1230,6 +1234,71 @@ instance FromJSON PackageNEVRA where
 -- Make a PackageNEVRA from a tuple of NEVRA info.
 mkPackageNEVRA :: (T.Text, Maybe T.Text, T.Text, T.Text, T.Text) -> PackageNEVRA
 mkPackageNEVRA (name, epoch, version, release, arch) = PackageNEVRA name epoch version release arch
+
+
+-- | The JSON response for /projects/list
+data ProjectsListResponse = ProjectsListResponse {
+    plpProjects :: [Projects],                                  -- ^ List of recipe names
+    plpOffset   :: Int,                                         -- ^ Pagination offset into results
+    plpLimit    :: Int,                                         -- ^ Pagination limit of results
+    plpTotal    :: Int                                          -- ^ Total number of recipe names
+} deriving (Show, Eq)
+
+instance ToJSON ProjectsListResponse where
+  toJSON ProjectsListResponse{..} = object [
+      "projects" .= plpProjects
+    , "offset"   .= plpOffset
+    , "limit"    .= plpLimit
+    , "total"    .= plpTotal ]
+
+instance FromJSON ProjectsListResponse where
+  parseJSON = withObject "/projects/list response" $ \o -> do
+    plpProjects <- o .: "projects"
+    plpOffset  <- o .: "offset"
+    plpLimit   <- o .: "limit"
+    plpTotal   <- o .: "total"
+    return ProjectsListResponse{..}
+
+-- Implement JSON functions for Projects
+instance ToJSON Projects where
+  toJSON Projects{..} = object [
+      "name"         .= projectsName
+    , "summary"      .= projectsSummary
+    , "description"  .= projectsDescription
+    , "homepage"     .= fromMaybe "" projectsHomepage
+    , "upstream_vcs" .= projectsUpstream_vcs ]
+
+instance FromJSON Projects where
+  parseJSON = withObject "Projects" $ \o -> do
+    projectsName         <- o .: "name"
+    projectsSummary      <- o .: "summary"
+    projectsDescription  <- o .: "description"
+    projectsHomepage     <- o .: "homepage"
+    projectsUpstream_vcs <- o .: "upstream_vcs"
+    return Projects{..}
+
+-- | /api/v0/projects/list
+-- Return the list of available projects
+projectsList :: ConnectionPool -> Maybe Int -> Maybe Int -> Handler ProjectsListResponse
+projectsList pool moffset mlimit = do
+    result <- runExceptT $ flip runSqlPool pool $ allProjects
+    case result of
+        -- TODO Properly report errors with a different response
+        Left _         -> return $ ProjectsListResponse [] offset limit 0
+        Right projects -> return $ ProjectsListResponse (apply_limits projects) offset limit (length projects)
+  where
+    -- | Return the offset or the default
+    offset :: Int
+    offset = fromMaybe 0 moffset
+
+    -- | Return the limit or the default
+    limit :: Int
+    limit  = fromMaybe 20 mlimit
+
+    -- | Apply limit and offset to a list
+    apply_limits :: [a] -> [a]
+    apply_limits l = take limit $ drop offset l
+
 
 -- | The JSON response for /projects/depsolve/<projects>
 data ProjectsDepsolveResponse = ProjectsDepsolveResponse {
