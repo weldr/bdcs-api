@@ -46,8 +46,8 @@ import           Test.Hspec
 
 -- Client API
 getStatus :: ClientM ServerStatus
-getPackage :: T.Text -> ClientM PackageInfo
 getProjectsList :: Maybe Int -> Maybe Int -> ClientM ProjectsListResponse
+getProjectsInfo :: String -> ClientM ProjectsInfoResponse
 getProjectsDepsolve :: String -> ClientM ProjectsDepsolveResponse
 getErr :: ClientM [T.Text]
 getRecipes :: Maybe Int -> Maybe Int -> ClientM RecipesListResponse
@@ -61,7 +61,7 @@ postRecipesTag :: String -> ClientM RecipesStatusResponse
 getRecipesDiff :: String -> String -> String -> ClientM RecipesDiffResponse
 getRecipesDepsolve :: String -> ClientM RecipesDepsolveResponse
 getRecipesFreeze :: String -> ClientM RecipesFreezeResponse
-getStatus :<|> getPackage :<|> getProjectsList :<|> getProjectsDepsolve :<|> getErr
+getStatus :<|> getProjectsList :<|> getProjectsInfo :<|> getProjectsDepsolve :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
           :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo
           :<|> postRecipesWorkspace :<|> postRecipesTag :<|> getRecipesDiff
@@ -194,6 +194,13 @@ projectsListResponse3 :: ProjectsListResponse
 projectsListResponse3 = ProjectsListResponse [ Projects "bdcs-fake-lisa" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
                                              Projects "bdcs-fake-sax" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS"]
                                             2 20 4
+
+projectsInfoResponse1 :: ProjectsInfoResponse
+projectsInfoResponse1 = ProjectsInfoResponse [Projects "bdcs-fake-bart" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS"]
+
+projectsInfoResponse2 :: ProjectsInfoResponse
+projectsInfoResponse2 = ProjectsInfoResponse [Projects "bdcs-fake-bart" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
+                                              Projects "bdcs-fake-sax" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS"]
 
 -- Post 10 changes to the test recipe
 postMultipleChanges :: ClientM Bool
@@ -453,6 +460,12 @@ spec = do
 
             it "List the last 2 projects" $ \env ->
                 try env (getProjectsList (Just 2) Nothing) `shouldReturn` projectsListResponse3
+
+            it "Get info on one project" $ \env ->
+                try env (getProjectsInfo "bdcs-fake-bart") `shouldReturn` projectsInfoResponse1
+
+            it "Get info on two projects" $ \env ->
+                try env (getProjectsInfo "bdcs-fake-bart,bdcs-fake-sax") `shouldReturn` projectsInfoResponse2
 
     describe "cleanup" $
         it "Remove the temporary directory" $

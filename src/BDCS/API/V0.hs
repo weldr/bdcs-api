@@ -30,6 +30,7 @@
 -}
 module BDCS.API.V0(PackageNEVRA(..),
                ProjectsDepsolveResponse(..),
+               ProjectsInfoResponse(..),
                ProjectsListResponse(..),
                RecipesListResponse(..),
                RecipesInfoResponse(..),
