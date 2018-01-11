@@ -28,8 +28,7 @@
 
 {-| API v0 routes
 -}
-module BDCS.API.V0(PackageInfo(..),
-               PackageNEVRA(..),
+module BDCS.API.V0(PackageNEVRA(..),
                ProjectsDepsolveResponse(..),
                ProjectsListResponse(..),
                RecipesListResponse(..),
@@ -51,13 +50,13 @@ import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
 import           BDCS.API.TOMLMediaType
-import           BDCS.API.Utils(GitLock(..), argify)
+import           BDCS.API.Utils(GitLock(..), argify, caseInsensitive)
 import           BDCS.API.Workspace
 import           BDCS.DB
 import           BDCS.Depclose(depcloseNames)
 import           BDCS.Depsolve(formulaToCNF, solveCNF)
 import           BDCS.Groups(groupIdToNevra)
-import           BDCS.Projects(findProject, getProject, allProjects)
+import           BDCS.Projects(findProject, getProject, projects)
 import           BDCS.RPM.Utils(splitFilename)
 import           BDCS.Utils.Monad(mapMaybeM)
 import qualified Control.Concurrent.ReadWriteLock as RWL
@@ -65,7 +64,7 @@ import qualified Control.Exception as CE
 import           Control.Monad.Except
 import           Data.Aeson
 import           Data.List(find, sortBy)
-import           Data.Maybe(fromJust, fromMaybe, mapMaybe)
+import           Data.Maybe(fromMaybe, mapMaybe)
 import qualified Data.Text as T
 import           Database.Persist.Sql
 import           Data.GI.Base(GError(..))
@@ -75,24 +74,6 @@ import           Servant
 
 {-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
 {-# ANN module ("HLint: ignore Reduce duplication" :: String) #-}
-
--- | Information about Packages
-data PackageInfo = PackageInfo
-  {  piName    :: T.Text                                                -- ^ Package name
-  ,  piSummary :: T.Text                                                -- ^ Package summary
-  } deriving (Eq, Show)
-
-instance ToJSON PackageInfo where
-  toJSON PackageInfo{..} = object [
-      "name"    .= piName
-    , "summary" .= piSummary ]
-
-instance FromJSON PackageInfo where
-  parseJSON = withObject "package info" $ \o -> do
-    piName    <- o .: "name"
-    piSummary <- o .: "summary"
-    return PackageInfo{..}
-
 
 -- | RecipesAPIError is used to report errors with the /recipes/ routes
 --
@@ -120,10 +101,10 @@ instance FromJSON RecipesAPIError where
 
 
 -- These are the API routes. This is not documented in haddock because it doesn't format it correctly
-type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
-        :<|> "projects" :> "list" :> QueryParam "offset" Int
+type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                   :> QueryParam "limit" Int :> Get '[JSON] ProjectsListResponse
-        :<|> "projects" :> "depsolve" :> Capture "projects" String :> Get '[JSON] ProjectsDepsolveResponse
+        :<|> "projects" :> "info"     :> Capture "project_names" String :> Get '[JSON] ProjectsInfoResponse
+        :<|> "projects" :> "depsolve" :> Capture "project_names" String :> Get '[JSON] ProjectsDepsolveResponse
         :<|> "errtest"  :> Get '[JSON] [T.Text]
         :<|> "recipes"  :> "list" :> QueryParam "offset" Int
                                   :> QueryParam "limit" Int :> Get '[JSON] RecipesListResponse
@@ -146,8 +127,8 @@ type V0API = "package"  :> Capture "package" T.Text :> Get '[JSON] PackageInfo
 
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
-v0ApiServer repoLock pool = pkgInfoH
-                       :<|> projectsListH
+v0ApiServer repoLock pool = projectsListH
+                       :<|> projectsInfoH
                        :<|> projectsDepsolveH
                        :<|> errTestH
                        :<|> recipesListH
@@ -162,9 +143,9 @@ v0ApiServer repoLock pool = pkgInfoH
                        :<|> recipesDepsolveH
                        :<|> recipesFreezeH
   where
-    pkgInfoH package     = liftIO $ packageInfo pool package
-    projectsListH offset limit = projectsList pool offset limit
-    projectsDepsolveH projects = projectsDepsolve pool projects
+    projectsListH offset limit      = projectsList pool offset limit
+    projectsInfoH project_names     = projectsInfo pool project_names
+    projectsDepsolveH project_names = projectsDepsolve pool project_names
     errTestH             = errTest
     recipesListH offset limit = recipesList repoLock "master" offset limit
     recipesInfoH recipes = recipesInfo repoLock "master" recipes
@@ -177,18 +158,6 @@ v0ApiServer repoLock pool = pkgInfoH
     recipesDiffH recipe from_commit to_commit = recipesDiff repoLock "master" recipe from_commit to_commit
     recipesDepsolveH recipes = recipesDepsolve pool repoLock "master" recipes
     recipesFreezeH recipes = recipesFreeze pool repoLock "master" recipes
-
--- | Example of getting package info from the sqlite database
-packageInfo :: ConnectionPool -> T.Text -> IO PackageInfo
-packageInfo pool package = flip runSqlPersistMPool pool $ do
-    mproj <- findProject package
-    let proj_id = fromJust mproj
-    mproject <- getProject proj_id
-    let project = fromJust mproject
-    liftIO $ print project
-    let name = projectsName project
-    let summary = projectsSummary project
-    return (PackageInfo name summary)
 
 -- | A test using ServantErr
 errTest :: Handler [T.Text]
@@ -243,10 +212,10 @@ recipesList :: GitLock -> T.Text -> Maybe Int -> Maybe Int -> Handler RecipesLis
 recipesList repoLock branch moffset mlimit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
     -- TODO Figure out how to catch GitError and throw a ServantErr
     filenames <- listBranchFiles (gitRepo repoLock) branch
-    let recipes = sortBy caseInsensitive $ map (T.dropEnd 5) filenames
+    let recipes = sortBy caseInsensitiveT $ map (T.dropEnd 5) filenames
     return $ RecipesListResponse (apply_limits recipes) offset limit (length recipes)
   where
-    caseInsensitive a b = T.toCaseFold a `compare` T.toCaseFold b
+    caseInsensitiveT a b = T.toCaseFold a `compare` T.toCaseFold b
     -- handleGitErrors :: GitError -> ServantErr
     -- handleGitErrors e = createApiError err500 "recipes_list" ("Git Error: " ++ show e)
 
@@ -1262,13 +1231,31 @@ instance FromJSON ProjectsListResponse where
 
 -- | /api/v0/projects/list
 -- Return the list of available projects
+--
+-- # Example
+--
+-- > {
+-- >     "limit": 20,
+-- >     "offset": 0,
+-- >     "projects": [
+-- >         {
+-- >             "description": "389 Directory Server is an LDAPv3 compliant server. ...",
+-- >             "homepage": "https://www.port389.org/",
+-- >             "name": "389-ds-base",
+-- >             "summary": "389 Directory Server (base)",
+-- >             "upstream_vcs": "UPSTREAM_VCS"
+-- >         },
+-- >         }
+-- >     ],
+-- >     "total": 2117
+-- > }
 projectsList :: ConnectionPool -> Maybe Int -> Maybe Int -> Handler ProjectsListResponse
 projectsList pool moffset mlimit = do
-    result <- runExceptT $ flip runSqlPool pool $ allProjects
+    result <- runExceptT $ flip runSqlPool pool $ projects
     case result of
         -- TODO Properly report errors with a different response
         Left _         -> return $ ProjectsListResponse [] offset limit 0
-        Right projects -> return $ ProjectsListResponse (apply_limits projects) offset limit (length projects)
+        Right project_info -> return $ ProjectsListResponse (apply_limits project_info) offset limit (length project_info)
   where
     -- | Return the offset or the default
     offset :: Int
@@ -1282,6 +1269,52 @@ projectsList pool moffset mlimit = do
     apply_limits :: [a] -> [a]
     apply_limits l = take limit $ drop offset l
 
+
+-- | The JSON response for /projects/info
+data ProjectsInfoResponse = ProjectsInfoResponse {
+    pipProjects :: [Projects]                                   -- ^ List of recipe names
+} deriving (Show, Eq)
+
+instance ToJSON ProjectsInfoResponse where
+  toJSON ProjectsInfoResponse{..} = object [
+      "projects" .= pipProjects ]
+
+instance FromJSON ProjectsInfoResponse where
+  parseJSON = withObject "/projects/info response" $ \o -> do
+    pipProjects <- o .: "projects"
+    return ProjectsInfoResponse{..}
+
+-- | /api/v0/projects/info/<projects>
+-- Return information about the comma-separated list of projects
+--
+-- # Example
+--
+-- > {
+-- >     "projects": [
+-- >         {
+-- >             "description": "The GNU tar program saves many files ...",
+-- >             "homepage": "http://www.gnu.org/software/tar/",
+-- >             "name": "tar",
+-- >             "summary": "A GNU file archiving program",
+-- >             "upstream_vcs": "UPSTREAM_VCS"
+-- >         }
+-- >     ]
+-- > }
+-- >
+projectsInfo :: ConnectionPool -> String -> Handler ProjectsInfoResponse
+projectsInfo pool project_names = do
+    let project_name_list = map T.pack $ sortBy caseInsensitive $ argify [project_names]
+    projects_info <- liftIO $ mapMaybeM getProjectInfo project_name_list
+    return $ ProjectsInfoResponse projects_info
+  where
+    getProjectInfo :: T.Text -> IO (Maybe Projects)
+    getProjectInfo project_name = do
+        result <- runExceptT $ flip runSqlPool pool $ findProject project_name >>= \case
+            Nothing      -> return Nothing
+            Just proj_id -> getProject proj_id
+        case result of
+            Left _             -> return Nothing
+            Right project_info -> return project_info
 
 -- | The JSON response for /projects/depsolve/<projects>
 data ProjectsDepsolveResponse = ProjectsDepsolveResponse {
