@@ -23,6 +23,7 @@ import           BDCS.API.Recipe(Recipe(..), RecipeModule(..))
 import           BDCS.API.Recipes(CommitDetails(..), RecipeDiffType(..), RecipeDiffEntry(..))
 import           BDCS.API.Server
 import           BDCS.API.V0
+import           BDCS.DB(Projects(..))
 import           Control.Conditional(whenM)
 import           Control.Exception(throwIO)
 import           Control.Monad.Loops(allM)
@@ -46,6 +47,7 @@ import           Test.Hspec
 -- Client API
 getStatus :: ClientM ServerStatus
 getPackage :: T.Text -> ClientM PackageInfo
+getProjectsList :: Maybe Int -> Maybe Int -> ClientM ProjectsListResponse
 getProjectsDepsolve :: String -> ClientM ProjectsDepsolveResponse
 getErr :: ClientM [T.Text]
 getRecipes :: Maybe Int -> Maybe Int -> ClientM RecipesListResponse
@@ -59,7 +61,7 @@ postRecipesTag :: String -> ClientM RecipesStatusResponse
 getRecipesDiff :: String -> String -> String -> ClientM RecipesDiffResponse
 getRecipesDepsolve :: String -> ClientM RecipesDepsolveResponse
 getRecipesFreeze :: String -> ClientM RecipesFreezeResponse
-getStatus :<|> getPackage :<|> getProjectsDepsolve :<|> getErr
+getStatus :<|> getPackage :<|> getProjectsList :<|> getProjectsDepsolve :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
           :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo
           :<|> postRecipesWorkspace :<|> postRecipesTag :<|> getRecipesDiff
@@ -175,6 +177,23 @@ projectsDepsolveResponse1 =
 projectsDepsolveResponse2 :: ProjectsDepsolveResponse
 projectsDepsolveResponse2 =
     ProjectsDepsolveResponse []
+
+projectsListResponse1 :: ProjectsListResponse
+projectsListResponse1 = ProjectsListResponse [Projects "bdcs-fake-bart" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
+                                             Projects "bdcs-fake-homer" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
+                                             Projects "bdcs-fake-lisa" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
+                                             Projects "bdcs-fake-sax" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS"]
+                                            0 20 4
+
+projectsListResponse2 :: ProjectsListResponse
+projectsListResponse2 = ProjectsListResponse [Projects "bdcs-fake-bart" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
+                                             Projects "bdcs-fake-homer" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS"]
+                                            0 2 4
+
+projectsListResponse3 :: ProjectsListResponse
+projectsListResponse3 = ProjectsListResponse [ Projects "bdcs-fake-lisa" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
+                                             Projects "bdcs-fake-sax" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS"]
+                                            2 20 4
 
 -- Post 10 changes to the test recipe
 postMultipleChanges :: ClientM Bool
@@ -426,9 +445,18 @@ spec = do
             it "Depsolve an unknown package" $ \env ->
                 try env (getProjectsDepsolve "unknown-recipe") `shouldReturn` projectsDepsolveResponse2
 
---    describe "cleanup" $
---        it "Remove the temporary directory" $
---            removeDirectoryRecursive "/var/tmp/bdcs-tmp-recipes/"
+            it "List the available projects" $ \env ->
+                try env (getProjectsList Nothing Nothing) `shouldReturn` projectsListResponse1
+
+            it "List the first 2 projects" $ \env ->
+                try env (getProjectsList Nothing (Just 2)) `shouldReturn` projectsListResponse2
+
+            it "List the last 2 projects" $ \env ->
+                try env (getProjectsList (Just 2) Nothing) `shouldReturn` projectsListResponse3
+
+    describe "cleanup" $
+        it "Remove the temporary directory" $
+            removeDirectoryRecursive "/var/tmp/bdcs-tmp-recipes/"
 
 
 withClient :: IO Application -> SpecWith ClientEnv -> SpecWith ()

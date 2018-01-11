@@ -31,6 +31,7 @@
 module BDCS.API.V0(PackageInfo(..),
                PackageNEVRA(..),
                ProjectsDepsolveResponse(..),
+               ProjectsListResponse(..),
                RecipesListResponse(..),
                RecipesInfoResponse(..),
                RecipesChangesResponse(..),
@@ -1258,24 +1259,6 @@ instance FromJSON ProjectsListResponse where
     plpLimit   <- o .: "limit"
     plpTotal   <- o .: "total"
     return ProjectsListResponse{..}
-
--- Implement JSON functions for Projects
-instance ToJSON Projects where
-  toJSON Projects{..} = object [
-      "name"         .= projectsName
-    , "summary"      .= projectsSummary
-    , "description"  .= projectsDescription
-    , "homepage"     .= fromMaybe "" projectsHomepage
-    , "upstream_vcs" .= projectsUpstream_vcs ]
-
-instance FromJSON Projects where
-  parseJSON = withObject "Projects" $ \o -> do
-    projectsName         <- o .: "name"
-    projectsSummary      <- o .: "summary"
-    projectsDescription  <- o .: "description"
-    projectsHomepage     <- o .: "homepage"
-    projectsUpstream_vcs <- o .: "upstream_vcs"
-    return Projects{..}
 
 -- | /api/v0/projects/list
 -- Return the list of available projects
