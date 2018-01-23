@@ -1,0 +1,26 @@
+dist: trusty
+language: c
+sudo: required
+services:
+  - docker
+
+cache:
+  directories:
+    - ~/.ghc
+    - ~/.cabal
+
+before_install:
+  - wget --progress=dot:giga https://haskell.org/platform/download/8.0.2/haskell-platform-8.0.2-unknown-posix--minimal-x86_64.tar.gz
+  - tar -xzvf ./haskell-platform-8.0.2-unknown-posix--minimal-x86_64.tar.gz
+  - sudo ./install-haskell-platform.sh
+
+script:
+  - make ci
+
+after_success:
+  - make ci_after_success
+
+notifications:
+  email:
+    on_failure: change
+    on_success: never

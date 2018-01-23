@@ -32,10 +32,16 @@ tests: sandbox
 	cabal test --show-details=always
 
 ci:
-	docker build -t welder/bdcs-api -f Dockerfile.build .
+	sudo docker build -t welder/bdcs-api -f Dockerfile.build .
 
-ci_after_success:
-	[ -x ~/.cabal-sandbox/bin/hpc-coveralls ] || cabal update && cabal install hpc-coveralls
-	~/.cabal-sandbox/bin/hpc-coveralls --display-report bdcs-api-server spec
+ci_after_success: sandbox
+	# copy coverage data & compiled binaries out of the container
+	sudo docker create --name build-container welder/bdcs-api /bin/bash
+	sudo docker cp build-container:/bdcs-api/dist ./dist
+	sudo docker rm build-container
+	sudo chown travis:travis -R ./dist
+
+	[ -x .cabal-sandbox/bin/hpc-coveralls ] || cabal update && cabal install hpc-coveralls
+	.cabal-sandbox/bin/hpc-coveralls --display-report spec
 
 .PHONY: sandbox bdcs-api-server clean tests hlint ci ci_after_success
