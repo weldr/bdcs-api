@@ -17,9 +17,10 @@ clean:
 	cabal clean
 
 hlint: sandbox
+	cabal update
 	[ -x .cabal-sandbox/bin/happy ] || cabal install happy
 	[ -x .cabal-sandbox/bin/hlint ] || cabal install hlint
-	cabal exec hlint .
+	.cabal-sandbox/bin/hlint .
 
 tests: sandbox
 	cabal update
@@ -28,6 +29,12 @@ tests: sandbox
 	cabal install --dependencies-only --enable-tests
 	cabal configure --enable-tests --enable-coverage
 	cabal build
-	cabal test
+	cabal test --show-details=always
 
-.PHONY: sandbox bdcs-api-server clean tests hlint
+ci: hlint tests
+
+ci_after_success:
+	[ -x ~/.cabal-sandbox/bin/hpc-coveralls ] || cabal update && cabal install hpc-coveralls
+	~/.cabal-sandbox/bin/hpc-coveralls --display-report bdcs-api-server spec
+
+.PHONY: sandbox bdcs-api-server clean tests hlint ci ci_after_success
