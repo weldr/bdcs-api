@@ -1,0 +1,14 @@
+FROM fedora:27
+
+RUN dnf -y install sudo cabal-install ostree-devel xz-devel \
+                   gobject-introspection-devel \
+                   ghc-haskell-gi-devel libgit2-glib-devel
+
+RUN mkdir /bdcs-api
+WORKDIR /bdcs-api
+
+# copy source code
+COPY . /bdcs-api
+
+# build the application
+RUN make hlint && make tests

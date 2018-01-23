@@ -31,7 +31,8 @@ tests: sandbox
 	cabal build
 	cabal test --show-details=always
 
-ci: hlint tests
+ci:
+	docker build -t welder/bdcs-api -f Dockerfile.build .
 
 ci_after_success:
 	[ -x ~/.cabal-sandbox/bin/hpc-coveralls ] || cabal update && cabal install hpc-coveralls
