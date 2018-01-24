@@ -1252,7 +1252,7 @@ instance FromJSON ProjectsListResponse where
 -- > }
 projectsList :: ConnectionPool -> Maybe Int -> Maybe Int -> Handler ProjectsListResponse
 projectsList pool moffset mlimit = do
-    result <- runExceptT $ flip runSqlPool pool $ projects
+    result <- runExceptT $ runSqlPool projects pool
     case result of
         -- TODO Properly report errors with a different response
         Left _         -> return $ ProjectsListResponse [] offset limit 0

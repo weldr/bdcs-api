@@ -87,4 +87,4 @@ spec =
             runWorkspaceTests `shouldReturn` True
 
         it "Test Recipe Diff" $
-            (recipeDiff testOldRecipe testNewRecipe) `shouldBe` testDiffResults
+            recipeDiff testOldRecipe testNewRecipe `shouldBe` testDiffResults

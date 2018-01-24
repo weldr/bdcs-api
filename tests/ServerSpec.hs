@@ -290,9 +290,7 @@ recipesDeleteTest = do
 
     -- Delete it from the list
     delete_recipe :: ClientM Bool
-    delete_recipe = do
-        response <- deleteRecipes "A Test Recipe"
-        return $ rsrStatus response
+    delete_recipe = rsrStatus <$> deleteRecipes "A Test Recipe"
 
     -- Is it NOT in the list?
     recipe_not_in_list = do

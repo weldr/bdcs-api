@@ -553,8 +553,8 @@ commitDetails repo revwalk branch filename details next_id = do
         micro  <- GLib.dateTimeGetMicrosecond utctime
 
         -- Print it out in the same format as g_time_val_to_iso8601
-        let secondsStr = (if (micro /= 0) then printf "%02d.%06d" second micro
-                                         else printf "%02d" second) :: String
+        let secondsStr = (if micro /= 0 then printf "%02d.%06d" second micro
+                                        else printf "%02d" second) :: String
 
         return $ T.pack $ printf "%d-%02d-%02dT%02d:%02d:%sZ" year month day hour minute secondsStr
 
@@ -775,9 +775,8 @@ readRecipeCommit repo branch recipe_name commit = do
     let filename = recipeTomlFilename $ T.unpack recipe_name
     if filename `notElem` branch_files
         then return $ Left (printf "%s is not present on branch %s" filename branch)
-        else do
-            recipe_toml <- readCommit repo branch filename commit
-            return $ parseRecipe (decodeUtf8 recipe_toml)
+        else parseRecipe . decodeUtf8 <$> readCommit repo branch filename commit
+
 
 -- | print the OId
 --
@@ -1107,7 +1106,7 @@ testGitRepo tmpdir = do
     -- Make sure the first listed commit is the reverted commit
     let top_commit = cdCommit $ head commits
     revert_hash <- fromJust <$> Git.oIdToString revert_id
-    unless (top_commit == revert_hash) (throwIO $ ChangesOrderError)
+    unless (top_commit == revert_hash) (throwIO ChangesOrderError)
 
     return True
 
