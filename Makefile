@@ -3,7 +3,7 @@ default: all
 all: bdcs-api-server
 
 sandbox:
-	[ -d .cabal-sandbox ] || cabal sandbox init
+	cabal sandbox init
 
 bdcs-api-server: sandbox
 	cabal update
@@ -33,15 +33,14 @@ tests: sandbox
 
 ci:
 	sudo docker build -t welder/bdcs-api -f Dockerfile.build .
+	sudo docker run --rm --security-opt label=disable -v `pwd`:/bdcs-api/ welder/bdcs-api
 
-ci_after_success: sandbox
-	# copy coverage data & compiled binaries out of the container
-	sudo docker create --name build-container welder/bdcs-api /bin/bash
-	sudo docker cp build-container:/bdcs-api/dist ./dist
-	sudo docker rm build-container
-	sudo chown travis:travis -R ./dist
+ci_after_success:
+	sudo docker run --rm --security-opt label=disable -v `pwd`:/bdcs-api/ \
+	    --env "TRAVIS=$$TRAVIS" --env "TRAVIS_JOB_ID=$$TRAVIS_JOB_ID" --entrypoint /usr/bin/make welder/bdcs-api coveralls
 
+coveralls: sandbox
 	[ -x .cabal-sandbox/bin/hpc-coveralls ] || cabal update && cabal install hpc-coveralls
 	.cabal-sandbox/bin/hpc-coveralls --display-report spec
 
-.PHONY: sandbox bdcs-api-server clean tests hlint ci ci_after_success
+.PHONY: sandbox bdcs-api-server clean tests hlint ci ci_after_success coveralls
