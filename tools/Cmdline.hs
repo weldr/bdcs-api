@@ -35,6 +35,8 @@ data CliOptions = CliOptions
     , optLogfile     :: FilePath
     , optMockfiles   :: FilePath
     , optBDCS        :: FilePath
+    , optMetadataDB  :: FilePath
+    , optRecipeRepo  :: FilePath
     } deriving Show
 
 defaultOptions :: CliOptions
@@ -46,6 +48,8 @@ defaultOptions    = CliOptions
     , optLogfile     = "/var/log/bdcs-api.log"
     , optMockfiles   = "/var/tmp/bdcs-mockfiles"
     , optBDCS        = "/mddb/cs.repo/"
+    , optMetadataDB  = ""
+    , optRecipeRepo  = ""
     }
 
 cliOptions :: [OptDescr (CliOptions -> CliOptions)]
@@ -76,12 +80,16 @@ cliOptions =
 cliHeader :: String
 cliHeader = "Usage: bdcs-api-server [OPTIONS...] <METADATA-DB> <RECIPE-REPO>"
 
-parseOpts :: [String] -> IO (CliOptions, [String])
+parseOpts :: [String] -> IO CliOptions
 parseOpts argv =
     case getOpt Permute cliOptions argv of
-        (o,n,[]  ) -> return (foldl (flip id) defaultOptions o, n)
-        (_,_,errs) -> ioError (userError (concat errs ++ usageInfo cliHeader cliOptions))
-
+        (o, [mddb, recipes], []) -> return $ resolveDefaults (o ++ [mddbOption mddb, recipesOption recipes])
+        (_, _, [])               -> ioError $ userError $ usageInfo cliHeader cliOptions
+        (_,_,errs)               -> ioError $ userError $ concat errs ++ usageInfo cliHeader cliOptions
+ where
+    resolveDefaults o = foldl (flip id) defaultOptions o
+    mddbOption    m opts = opts { optMetadataDB = m }
+    recipesOption r opts = opts { optRecipeRepo = r }
 
 helpText :: String
 helpText = "\
@@ -92,7 +100,5 @@ usage = do
     putStrLn $ usageInfo cliHeader cliOptions
     putStr helpText
 
-parseArgs :: IO (CliOptions, [String])
-parseArgs = do
-    args <- getArgs
-    parseOpts args
+parseArgs :: IO CliOptions
+parseArgs = getArgs >>= parseOpts

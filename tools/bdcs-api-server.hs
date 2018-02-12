@@ -18,19 +18,15 @@
 
 import           BDCS.API.Server(runServer)
 import           Cmdline(CliOptions(..),
-                         parseArgs,
-                         usage)
+                         parseArgs)
 import           Control.Monad(when)
 import           Data.Version (showVersion)
 import           Development.GitRev
 import           Paths_bdcs_api(version)
-import           System.Exit(exitFailure)
 
 main :: IO ()
 main = do
-    r <- parseArgs
-    let opts = fst r
-    let args = snd r
+    opts <- parseArgs
 
     when (optShowVersion opts) $ do
         let git_version = $(gitDescribe)
@@ -39,10 +35,4 @@ main = do
         else
             putStrLn ("bdcs-api " ++ git_version)
 
-    when (length args < 2) $ do
-        usage
-        exitFailure
-    let sqliteDbPath = args !! 1
-    let gitRepoPath = args !! 2
-
-    runServer (optPort opts) gitRepoPath sqliteDbPath
+    runServer (optPort opts) (optRecipeRepo opts) (optMetadataDB opts)
