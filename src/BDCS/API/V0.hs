@@ -136,6 +136,9 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
         :<|> "recipes"  :> "workspace" :> ReqBody '[JSON, TOML] Recipe
                                        :> QueryParam "branch" String
                                        :> Post '[JSON] RecipesStatusResponse
+        :<|> "recipes"  :> "workspace" :> Capture "recipe" String
+                                       :> QueryParam "branch" String
+                                       :> Delete '[JSON] RecipesStatusResponse
         :<|> "recipes"  :> "tag" :> Capture "recipe" String
                                  :> QueryParam "branch" String
                                  :> Post '[JSON] RecipesStatusResponse
@@ -164,6 +167,7 @@ v0ApiServer repoLock pool = projectsListH
                        :<|> recipesDeleteH
                        :<|> recipesUndoH
                        :<|> recipesWorkspaceH
+                       :<|> recipesWorkspaceDeleteH
                        :<|> recipesTagH
                        :<|> recipesDiffH
                        :<|> recipesDepsolveH
@@ -180,6 +184,7 @@ v0ApiServer repoLock pool = projectsListH
     recipesDeleteH recipe branch = recipesDelete repoLock branch recipe
     recipesUndoH recipe commit branch = recipesUndo repoLock branch recipe commit
     recipesWorkspaceH recipe branch = recipesWorkspace repoLock branch recipe
+    recipesWorkspaceDeleteH recipe branch = recipesWorkspaceDelete repoLock branch recipe
     recipesTagH recipe branch = recipesTag repoLock branch recipe
     recipesDiffH recipe from_commit to_commit branch = recipesDiff repoLock branch recipe from_commit to_commit
     recipesDepsolveH recipes branch = recipesDepsolve pool repoLock branch recipes
@@ -703,6 +708,33 @@ recipesWorkspace repoLock mbranch recipe = liftIO $ RWL.withRead (gitRepoLock re
     catch_recipe_ws :: IO (Either String ())
     catch_recipe_ws =
         CE.catches (Right <$> workspaceWrite (gitRepo repoLock) (defaultBranch mbranch) recipe)
+                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
+                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+
+
+-- | DELETE /api/v0/recipes/workspace/\<recipe\>
+-- Delete the named recipe from the workspace
+--
+-- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
+-- [@mbranch@]: The branch name
+-- [@recipe_name@]: The recipe name
+--
+-- The response for a successful DELETE is:
+--
+-- > {
+-- >     "status": true,
+-- >     "errors": []
+-- > }
+recipesWorkspaceDelete :: GitLock -> Maybe String -> String -> Handler RecipesStatusResponse
+recipesWorkspaceDelete repoLock mbranch recipe_name = liftIO $ RWL.withWrite (gitRepoLock repoLock) $ do
+    result <- catch_recipe_delete
+    case result of
+        Left err -> return $ RecipesStatusResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
+        Right _  -> return $ RecipesStatusResponse True []
+  where
+    catch_recipe_delete :: IO (Either String ())
+    catch_recipe_delete =
+        CE.catches (Right <$> workspaceDelete (gitRepo repoLock) (defaultBranch mbranch) (T.pack recipe_name))
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
