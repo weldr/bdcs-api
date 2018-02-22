@@ -53,7 +53,7 @@ import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
 import           BDCS.API.TOMLMediaType
-import           BDCS.API.Utils(GitLock(..), argify, caseInsensitive)
+import           BDCS.API.Utils(GitLock(..), applyLimits, argify, caseInsensitive)
 import           BDCS.API.Workspace
 import           BDCS.DB
 import           BDCS.Depclose(depcloseNames)
@@ -257,7 +257,7 @@ recipesList repoLock mbranch moffset mlimit = liftIO $ RWL.withRead (gitRepoLock
     -- TODO Figure out how to catch GitError and throw a ServantErr
     filenames <- listBranchFiles (gitRepo repoLock) (defaultBranch mbranch)
     let recipes = sortBy caseInsensitiveT $ map (T.dropEnd 5) filenames
-    return $ RecipesListResponse (apply_limits recipes) offset limit (length recipes)
+    return $ RecipesListResponse (applyLimits limit offset recipes) offset limit (length recipes)
   where
     caseInsensitiveT a b = T.toCaseFold a `compare` T.toCaseFold b
     -- handleGitErrors :: GitError -> ServantErr
@@ -270,10 +270,6 @@ recipesList repoLock mbranch moffset mlimit = liftIO $ RWL.withRead (gitRepoLock
     -- | Return the limit or the default
     limit :: Int
     limit  = fromMaybe 20 mlimit
-
-    -- | Apply limit and offset to a list
-    apply_limits :: [a] -> [a]
-    apply_limits l = take limit $ drop offset l
 
 
 -- | Status of a recipe's workspace
@@ -568,7 +564,7 @@ recipesChanges repoLock mbranch recipe_names moffset mlimit = liftIO $ RWL.withR
         return (new_changes result, new_errors result)
       where
         new_changes :: Either String [CommitDetails] -> [RecipeChanges]
-        new_changes (Right changes) = RecipeChanges recipe_name (apply_limits changes) (length $ apply_limits changes):changes_list
+        new_changes (Right changes) = RecipeChanges recipe_name (applyLimits limit offset changes) (length $ applyLimits limit offset changes):changes_list
         new_changes (Left _)        = changes_list
 
         new_errors :: Either String [CommitDetails] -> [RecipesAPIError]
@@ -580,9 +576,6 @@ recipesChanges repoLock mbranch recipe_names moffset mlimit = liftIO $ RWL.withR
 
     limit :: Int
     limit  = fromMaybe 20 mlimit
-
-    apply_limits :: [a] -> [a]
-    apply_limits l = take limit $ drop offset l
 
     catch_recipe_changes :: T.Text -> IO (Either String [CommitDetails])
     catch_recipe_changes recipe_name =
@@ -1326,7 +1319,7 @@ projectsList pool moffset mlimit = do
     case result of
         -- TODO Properly report errors with a different response
         Left _         -> return $ ProjectsListResponse [] offset limit 0
-        Right project_info -> return $ ProjectsListResponse (apply_limits project_info) offset limit (length project_info)
+        Right project_info -> return $ ProjectsListResponse (applyLimits limit offset project_info) offset limit (length project_info)
   where
     -- | Return the offset or the default
     offset :: Int
@@ -1335,10 +1328,6 @@ projectsList pool moffset mlimit = do
     -- | Return the limit or the default
     limit :: Int
     limit  = fromMaybe 20 mlimit
-
-    -- | Apply limit and offset to a list
-    apply_limits :: [a] -> [a]
-    apply_limits l = take limit $ drop offset l
 
 
 -- | The JSON response for /projects/info
@@ -1491,7 +1480,7 @@ modulesList pool moffset mlimit module_names = do
     result <- runExceptT $ runSqlPool groups pool
     case result of
         Left _       -> return $ ModulesListResponse [] offset limit 0
-        Right tuples -> let names = map snd $ apply_limits tuples
+        Right tuples -> let names = map snd $ applyLimits limit offset tuples
                             objs  = if null module_names then map mkModuleName names
                                     else map mkModuleName $ filter (`elem` module_names) names
                         in  return $ ModulesListResponse objs offset limit (length tuples)
@@ -1503,10 +1492,6 @@ modulesList pool moffset mlimit module_names = do
     -- | Return the limit or the default
     limit :: Int
     limit  = fromMaybe 20 mlimit
-
-    -- | Apply limit and offset to a list
-    apply_limits :: [a] -> [a]
-    apply_limits l = take limit $ drop offset l
 
     mkModuleName :: T.Text -> ModuleName
     mkModuleName name = ModuleName { mnName=name, mnGroupType="rpm" }
