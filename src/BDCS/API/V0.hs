@@ -28,7 +28,8 @@
 
 {-| API v0 routes
 -}
-module BDCS.API.V0(ModuleName(..),
+module BDCS.API.V0(ComposeTypesResponse(..),
+               ModuleName(..),
                ModulesListResponse(..),
                PackageNEVRA(..),
                ProjectsDepsolveResponse(..),
@@ -58,6 +59,7 @@ import           BDCS.API.Workspace
 import           BDCS.DB
 import           BDCS.Depclose(depcloseNames)
 import           BDCS.Depsolve(formulaToCNF, solveCNF)
+import           BDCS.Export.Utils(supportedOutputs)
 import           BDCS.Groups(groupIdToNevra, groups)
 import           BDCS.Projects(findProject, getProject, projects)
 import           BDCS.RPM.Utils(splitFilename)
@@ -162,6 +164,7 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                   :> QueryParam "offset" Int
                                   :> QueryParam "limit" Int
                                   :> Get '[JSON] ModulesListResponse
+        :<|> "compose"  :> "types" :> Get '[JSON] ComposeTypesResponse
 
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
@@ -183,6 +186,7 @@ v0ApiServer repoLock pool = projectsListH
                        :<|> recipesFreezeH
                        :<|> modulesListH
                        :<|> modulesListFilteredH
+                       :<|> composeTypesH
   where
     projectsListH offset limit      = projectsList pool offset limit
     projectsInfoH project_names     = projectsInfo pool project_names
@@ -202,6 +206,7 @@ v0ApiServer repoLock pool = projectsListH
     recipesFreezeH recipes branch = recipesFreeze pool repoLock branch recipes
     modulesListH offset limit = modulesList pool offset limit []
     modulesListFilteredH module_names offset limit = modulesList pool offset limit (T.splitOn "," $ cs module_names)
+    composeTypesH = composeTypes
 
 -- | A test using ServantErr
 errTest :: Handler [T.Text]
@@ -1495,3 +1500,51 @@ modulesList pool moffset mlimit module_names = do
 
     mkModuleName :: T.Text -> ModuleName
     mkModuleName name = ModuleName { mnName=name, mnGroupType="rpm" }
+
+
+-- | The JSON response for /compose/types
+data ComposeType = ComposeType {
+    ctEnabled :: Bool,                      -- ^ Is this output type enabled?
+    ctName    :: T.Text                     -- ^ The name of the output type
+} deriving (Show, Eq)
+
+instance ToJSON ComposeType where
+    toJSON ComposeType{..} = object [
+        "enabled" .= ctEnabled
+      , "name"    .= ctName ]
+
+instance FromJSON ComposeType where
+    parseJSON = withObject "compose type" $ \o -> do
+        ctEnabled <- o .: "enabled"
+        ctName    <- o .: "name"
+        return ComposeType{..}
+
+data ComposeTypesResponse = ComposeTypesResponse {
+    ctrTypes :: [ComposeType]
+} deriving (Show, Eq)
+
+instance ToJSON ComposeTypesResponse where
+  toJSON ComposeTypesResponse{..} = object [
+      "types" .= ctrTypes ]
+
+instance FromJSON ComposeTypesResponse where
+  parseJSON = withObject "/compose/types response" $ \o -> do
+      ctrTypes <- o .: "types"
+      return ComposeTypesResponse{..}
+
+
+-- | /api/v0/compose/types
+--
+-- Returns the list of supported output types that are valid for use with 'POST /api/v0/compose'
+--
+-- > {
+-- >   "types": [
+-- >     {
+-- >       "enabled": true,
+-- >       "name": "tar"
+-- >     }
+-- >   ]
+-- > }
+composeTypes :: Handler ComposeTypesResponse
+composeTypes =
+    return $ ComposeTypesResponse $ map (ComposeType True) supportedOutputs
