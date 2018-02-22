@@ -28,7 +28,9 @@
 
 {-| API v0 routes
 -}
-module BDCS.API.V0(PackageNEVRA(..),
+module BDCS.API.V0(ModuleName(..),
+               ModulesListResponse(..),
+               PackageNEVRA(..),
                ProjectsDepsolveResponse(..),
                ProjectsInfoResponse(..),
                ProjectsListResponse(..),
@@ -56,7 +58,7 @@ import           BDCS.API.Workspace
 import           BDCS.DB
 import           BDCS.Depclose(depcloseNames)
 import           BDCS.Depsolve(formulaToCNF, solveCNF)
-import           BDCS.Groups(groupIdToNevra)
+import           BDCS.Groups(groupIdToNevra, groups)
 import           BDCS.Projects(findProject, getProject, projects)
 import           BDCS.RPM.Utils(splitFilename)
 import           BDCS.Utils.Monad(mapMaybeM)
@@ -153,6 +155,13 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
         :<|> "recipes"  :> "freeze" :> Capture "recipes" String
                                     :> QueryParam "branch" String
                                     :> Get '[JSON] RecipesFreezeResponse
+        :<|> "modules"  :> "list" :> QueryParam "offset" Int
+                                  :> QueryParam "limit" Int
+                                  :> Get '[JSON] ModulesListResponse
+        :<|> "modules"  :> "list" :> Capture "module_names" String
+                                  :> QueryParam "offset" Int
+                                  :> QueryParam "limit" Int
+                                  :> Get '[JSON] ModulesListResponse
 
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
@@ -172,6 +181,8 @@ v0ApiServer repoLock pool = projectsListH
                        :<|> recipesDiffH
                        :<|> recipesDepsolveH
                        :<|> recipesFreezeH
+                       :<|> modulesListH
+                       :<|> modulesListFilteredH
   where
     projectsListH offset limit      = projectsList pool offset limit
     projectsInfoH project_names     = projectsInfo pool project_names
@@ -189,6 +200,8 @@ v0ApiServer repoLock pool = projectsListH
     recipesDiffH recipe from_commit to_commit branch = recipesDiff repoLock branch recipe from_commit to_commit
     recipesDepsolveH recipes branch = recipesDepsolve pool repoLock branch recipes
     recipesFreezeH recipes branch = recipesFreeze pool repoLock branch recipes
+    modulesListH offset limit = modulesList pool offset limit []
+    modulesListFilteredH module_names offset limit = modulesList pool offset limit (T.splitOn "," $ cs module_names)
 
 -- | A test using ServantErr
 errTest :: Handler [T.Text]
@@ -1409,3 +1422,91 @@ depsolveProjects pool project_name_list = do
     case result of
         Left  e           -> return $ Left (show e)
         Right assignments -> return $ Right (map (mkPackageNEVRA . splitFilename) assignments)
+
+
+-- | Information about a module
+data ModuleName = ModuleName {
+    mnName      :: T.Text,                                       -- ^ Module name
+    mnGroupType :: T.Text                                        -- ^ Group type (always "rpm" for now)
+} deriving (Show, Eq)
+
+instance ToJSON ModuleName where
+  toJSON ModuleName{..} = object [
+      "name"       .= mnName,
+      "group_type" .= mnGroupType ]
+
+instance FromJSON ModuleName where
+  parseJSON = withObject "module info" $ \o -> do
+    mnName      <- o .: "name"
+    mnGroupType <- o .: "group_type"
+    return ModuleName{..}
+
+
+-- | The JSON response for /modules/list
+data ModulesListResponse = ModulesListResponse {
+    mlrModules  :: [ModuleName],                                -- ^ List of modules
+    mlrOffset   :: Int,                                         -- ^ Pagination offset into results
+    mlrLimit    :: Int,                                         -- ^ Pagination limit of results
+    mlrTotal    :: Int                                          -- ^ Total number of module names
+} deriving (Show, Eq)
+
+instance ToJSON ModulesListResponse where
+  toJSON ModulesListResponse{..} = object [
+      "modules" .= mlrModules
+    , "offset"  .= mlrOffset
+    , "limit"   .= mlrLimit
+    , "total"   .= mlrTotal ]
+
+instance FromJSON ModulesListResponse where
+  parseJSON = withObject "/modules/list response" $ \o -> do
+    mlrModules <- o .: "modules"
+    mlrOffset  <- o .: "offset"
+    mlrLimit   <- o .: "limit"
+    mlrTotal   <- o .: "total"
+    return ModulesListResponse{..}
+
+-- | /api/v0/modules/list
+-- /api/v0/modules/list/<module_names>
+-- Return a list of all of the available modules, filtering by module_names (a comma-separated
+-- list).  This includes the name and the group_type, which is currently always "rpm".
+--
+-- >  {
+-- >      "modules": [
+-- >        {
+-- >          "group_type": "rpm",
+-- >          "name": "0ad"
+-- >        },
+-- >        {
+-- >          "group_type": "rpm",
+-- >          "name": "0ad-data"
+-- >        },
+-- >        ....
+-- >      ],
+-- >      "offset": 0,
+-- >      "limit": 20,
+-- >      "total": 6
+-- >  }
+modulesList :: ConnectionPool -> Maybe Int -> Maybe Int -> [T.Text] -> Handler ModulesListResponse
+modulesList pool moffset mlimit module_names = do
+    result <- runExceptT $ runSqlPool groups pool
+    case result of
+        Left _       -> return $ ModulesListResponse [] offset limit 0
+        Right tuples -> let names = map snd $ apply_limits tuples
+                            objs  = if null module_names then map mkModuleName names
+                                    else map mkModuleName $ filter (`elem` module_names) names
+                        in  return $ ModulesListResponse objs offset limit (length tuples)
+  where
+    -- | Return the offset or the default
+    offset :: Int
+    offset = fromMaybe 0 moffset
+
+    -- | Return the limit or the default
+    limit :: Int
+    limit  = fromMaybe 20 mlimit
+
+    -- | Apply limit and offset to a list
+    apply_limits :: [a] -> [a]
+    apply_limits l = take limit $ drop offset l
+
+    mkModuleName :: T.Text -> ModuleName
+    mkModuleName name = ModuleName { mnName=name, mnGroupType="rpm" }
