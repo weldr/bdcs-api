@@ -32,6 +32,7 @@ module BDCS.API.Server(mkApp,
                        ServerStatus(..))
   where
 
+import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Recipes(openOrCreateRepo, commitRecipeDirectory)
 import           BDCS.API.Utils(GitLock(..))
 import           BDCS.API.V0(V0API, v0ApiServer)
@@ -40,7 +41,6 @@ import           Control.Monad(void)
 import           Control.Monad.Logger(runStderrLoggingT)
 import           Data.Aeson
 import           Data.String.Conversions(cs)
-import           Database.Persist.Sql
 import           Database.Persist.Sqlite
 import qualified GI.Ggit as Git
 import           Network.Wai
@@ -86,9 +86,9 @@ commonServer = serverStatus
 type CombinedAPI = CommonAPI
               :<|> "api" :> "v0" :> V0API
 
-combinedServer :: GitLock -> ConnectionPool -> Server CombinedAPI
-combinedServer repoLock pool = commonServer
-                          :<|> v0ApiServer repoLock pool
+combinedServer :: ServerConfig -> Server CombinedAPI
+combinedServer cfg = commonServer
+                :<|> v0ApiServer cfg
 
 -- | CORS policy
 appCors :: Middleware
@@ -104,11 +104,11 @@ appCors = cors (const $ Just policy)
 proxyAPI :: Proxy CombinedAPI
 proxyAPI = Proxy
 
-app :: GitLock -> ConnectionPool -> Application
-app gitRepo pool = appCors
-                 $ provideOptions proxyAPI
-                 $ serve proxyAPI
-                 $ combinedServer gitRepo pool
+app :: ServerConfig -> Application
+app cfg = appCors
+        $ provideOptions proxyAPI
+        $ serve proxyAPI
+        $ combinedServer cfg
 
 -- | Create the server app
 --
@@ -123,9 +123,10 @@ mkApp gitRepoPath sqliteDbPath = do
     void $ commitRecipeDirectory repo "master" gitRepoPath
     lock <- RWL.new
 
-    let repoLock = GitLock lock repo
+    let cfg = ServerConfig { cfgRepoLock = GitLock lock repo,
+                             cfgPool = pool }
 
-    return $ app repoLock pool
+    return $ app cfg
 
 -- | Run the API server
 runServer :: Int -> FilePath -> FilePath -> IO ()

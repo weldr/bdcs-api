@@ -50,6 +50,7 @@ module BDCS.API.V0(ComposeTypesResponse(..),
                v0ApiServer)
 where
 
+import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
@@ -167,46 +168,46 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
         :<|> "compose"  :> "types" :> Get '[JSON] ComposeTypesResponse
 
 -- | Connect the V0API type to all of the handlers
-v0ApiServer :: GitLock -> ConnectionPool -> Server V0API
-v0ApiServer repoLock pool = projectsListH
-                       :<|> projectsInfoH
-                       :<|> projectsDepsolveH
-                       :<|> errTestH
-                       :<|> recipesListH
-                       :<|> recipesInfoH
-                       :<|> recipesChangesH
-                       :<|> recipesNewH
-                       :<|> recipesDeleteH
-                       :<|> recipesUndoH
-                       :<|> recipesWorkspaceH
-                       :<|> recipesWorkspaceDeleteH
-                       :<|> recipesTagH
-                       :<|> recipesDiffH
-                       :<|> recipesDepsolveH
-                       :<|> recipesFreezeH
-                       :<|> modulesListH
-                       :<|> modulesListFilteredH
-                       :<|> composeTypesH
+v0ApiServer :: ServerConfig -> Server V0API
+v0ApiServer cfg = projectsListH
+             :<|> projectsInfoH
+             :<|> projectsDepsolveH
+             :<|> errTestH
+             :<|> recipesListH
+             :<|> recipesInfoH
+             :<|> recipesChangesH
+             :<|> recipesNewH
+             :<|> recipesDeleteH
+             :<|> recipesUndoH
+             :<|> recipesWorkspaceH
+             :<|> recipesWorkspaceDeleteH
+             :<|> recipesTagH
+             :<|> recipesDiffH
+             :<|> recipesDepsolveH
+             :<|> recipesFreezeH
+             :<|> modulesListH
+             :<|> modulesListFilteredH
+             :<|> composeTypesH
   where
-    projectsListH offset limit      = projectsList pool offset limit
-    projectsInfoH project_names     = projectsInfo pool project_names
-    projectsDepsolveH project_names = projectsDepsolve pool project_names
-    errTestH             = errTest
-    recipesListH offset limit branch = recipesList repoLock branch offset limit
-    recipesInfoH recipes branch = recipesInfo repoLock branch recipes
-    recipesChangesH recipes offset limit branch = recipesChanges repoLock branch recipes offset limit
-    recipesNewH recipe branch = recipesNew repoLock branch recipe
-    recipesDeleteH recipe branch = recipesDelete repoLock branch recipe
-    recipesUndoH recipe commit branch = recipesUndo repoLock branch recipe commit
-    recipesWorkspaceH recipe branch = recipesWorkspace repoLock branch recipe
-    recipesWorkspaceDeleteH recipe branch = recipesWorkspaceDelete repoLock branch recipe
-    recipesTagH recipe branch = recipesTag repoLock branch recipe
-    recipesDiffH recipe from_commit to_commit branch = recipesDiff repoLock branch recipe from_commit to_commit
-    recipesDepsolveH recipes branch = recipesDepsolve pool repoLock branch recipes
-    recipesFreezeH recipes branch = recipesFreeze pool repoLock branch recipes
-    modulesListH offset limit = modulesList pool offset limit []
-    modulesListFilteredH module_names offset limit = modulesList pool offset limit (T.splitOn "," $ cs module_names)
-    composeTypesH = composeTypes
+    projectsListH offset limit                       = projectsList cfg offset limit
+    projectsInfoH project_names                      = projectsInfo cfg project_names
+    projectsDepsolveH project_names                  = projectsDepsolve cfg project_names
+    errTestH                                         = errTest
+    recipesListH offset limit branch                 = recipesList cfg branch offset limit
+    recipesInfoH recipes branch                      = recipesInfo cfg branch recipes
+    recipesChangesH recipes offset limit branch      = recipesChanges cfg branch recipes offset limit
+    recipesNewH recipe branch                        = recipesNew cfg branch recipe
+    recipesDeleteH recipe branch                     = recipesDelete cfg branch recipe
+    recipesUndoH recipe commit branch                = recipesUndo cfg branch recipe commit
+    recipesWorkspaceH recipe branch                  = recipesWorkspace cfg branch recipe
+    recipesWorkspaceDeleteH recipe branch            = recipesWorkspaceDelete cfg branch recipe
+    recipesTagH recipe branch                        = recipesTag cfg branch recipe
+    recipesDiffH recipe from_commit to_commit branch = recipesDiff cfg branch recipe from_commit to_commit
+    recipesDepsolveH recipes branch                  = recipesDepsolve cfg branch recipes
+    recipesFreezeH recipes branch                    = recipesFreeze cfg branch recipes
+    modulesListH offset limit                        = modulesList cfg offset limit []
+    modulesListFilteredH module_names offset limit   = modulesList cfg offset limit (T.splitOn "," $ cs module_names)
+    composeTypesH                                    = composeTypes
 
 -- | A test using ServantErr
 errTest :: Handler [T.Text]
@@ -257,10 +258,10 @@ instance FromJSON RecipesListResponse where
 -- >      "limit": 20,
 -- >      "total": 6
 -- >  }
-recipesList :: GitLock -> Maybe String -> Maybe Int -> Maybe Int -> Handler RecipesListResponse
-recipesList repoLock mbranch moffset mlimit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesList :: ServerConfig -> Maybe String -> Maybe Int -> Maybe Int -> Handler RecipesListResponse
+recipesList ServerConfig{..} mbranch moffset mlimit = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
     -- TODO Figure out how to catch GitError and throw a ServantErr
-    filenames <- listBranchFiles (gitRepo repoLock) (defaultBranch mbranch)
+    filenames <- listBranchFiles (gitRepo cfgRepoLock) (defaultBranch mbranch)
     let recipes = sortBy caseInsensitiveT $ map (T.dropEnd 5) filenames
     return $ RecipesListResponse (applyLimits limit offset recipes) offset limit (length recipes)
   where
@@ -382,8 +383,8 @@ instance FromJSON RecipesInfoResponse where
 -- >     ]
 -- > }
 --
-recipesInfo :: GitLock -> Maybe String -> String -> Handler RecipesInfoResponse
-recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesInfo :: ServerConfig -> Maybe String -> String -> Handler RecipesInfoResponse
+recipesInfo ServerConfig{..} branch recipe_names = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
     let recipe_name_list = map T.pack (argify [recipe_names])
     (changes, recipes, errors) <- allRecipeInfo recipe_name_list [] [] []
     return $ RecipesInfoResponse changes recipes errors
@@ -398,7 +399,7 @@ recipesInfo repoLock branch recipe_names = liftIO $ RWL.withRead (gitRepoLock re
 
     oneRecipeInfo :: T.Text -> [WorkspaceChanges] -> [Recipe] -> [RecipesAPIError] -> IO ([WorkspaceChanges], [Recipe], [RecipesAPIError])
     oneRecipeInfo recipe_name changes_list recipes_list errors_list = do
-        result <- getRecipeInfo repoLock (defaultBranch branch) recipe_name
+        result <- getRecipeInfo cfgRepoLock (defaultBranch branch) recipe_name
         return (new_changes result, new_recipes result, new_errors result)
       where
         new_errors :: Either String (Bool, Recipe) -> [RecipesAPIError]
@@ -549,8 +550,8 @@ instance FromJSON RecipesChangesResponse where
 -- >     "offset": 0,
 -- >     "limit": 20
 -- > }
-recipesChanges :: GitLock -> Maybe String -> String -> Maybe Int -> Maybe Int -> Handler RecipesChangesResponse
-recipesChanges repoLock mbranch recipe_names moffset mlimit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesChanges :: ServerConfig -> Maybe String -> String -> Maybe Int -> Maybe Int -> Handler RecipesChangesResponse
+recipesChanges ServerConfig{..} mbranch recipe_names moffset mlimit = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
     let recipe_name_list = map T.pack (argify [recipe_names])
     (changes, errors) <- allRecipeChanges recipe_name_list [] []
     return $ RecipesChangesResponse changes errors offset limit
@@ -584,7 +585,7 @@ recipesChanges repoLock mbranch recipe_names moffset mlimit = liftIO $ RWL.withR
 
     catch_recipe_changes :: T.Text -> IO (Either String [CommitDetails])
     catch_recipe_changes recipe_name =
-        CE.catches (Right <$> listRecipeCommits (gitRepo repoLock) (defaultBranch mbranch) recipe_name)
+        CE.catches (Right <$> listRecipeCommits (gitRepo cfgRepoLock) (defaultBranch mbranch) recipe_name)
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
@@ -624,8 +625,8 @@ instance FromJSON RecipesStatusResponse where
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesNew :: GitLock -> Maybe String -> Recipe -> Handler RecipesStatusResponse
-recipesNew repoLock mbranch recipe = liftIO $ RWL.withWrite (gitRepoLock repoLock) $ do
+recipesNew :: ServerConfig -> Maybe String -> Recipe -> Handler RecipesStatusResponse
+recipesNew ServerConfig{..} mbranch recipe = liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) $ do
     result <- catch_recipe_new
     case result of
         Left err -> return $ RecipesStatusResponse False [RecipesAPIError "Unknown" (T.pack err)]
@@ -633,7 +634,7 @@ recipesNew repoLock mbranch recipe = liftIO $ RWL.withWrite (gitRepoLock repoLoc
   where
     catch_recipe_new :: IO (Either String Git.OId)
     catch_recipe_new =
-        CE.catches (Right <$> commitRecipe (gitRepo repoLock) (defaultBranch mbranch) recipe)
+        CE.catches (Right <$> commitRecipe (gitRepo cfgRepoLock) (defaultBranch mbranch) recipe)
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
@@ -651,8 +652,8 @@ recipesNew repoLock mbranch recipe = liftIO $ RWL.withWrite (gitRepoLock repoLoc
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesDelete :: GitLock -> Maybe String -> String -> Handler RecipesStatusResponse
-recipesDelete repoLock mbranch recipe_name = liftIO $ RWL.withWrite (gitRepoLock repoLock) $ do
+recipesDelete :: ServerConfig -> Maybe String -> String -> Handler RecipesStatusResponse
+recipesDelete ServerConfig{..} mbranch recipe_name = liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) $ do
     result <- catch_recipe_delete
     case result of
         Left err -> return $ RecipesStatusResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
@@ -660,7 +661,7 @@ recipesDelete repoLock mbranch recipe_name = liftIO $ RWL.withWrite (gitRepoLock
   where
     catch_recipe_delete :: IO (Either String Git.OId)
     catch_recipe_delete =
-        CE.catches (Right <$> deleteRecipe (gitRepo repoLock) (defaultBranch mbranch) (T.pack recipe_name))
+        CE.catches (Right <$> deleteRecipe (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name))
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
@@ -679,8 +680,8 @@ recipesDelete repoLock mbranch recipe_name = liftIO $ RWL.withWrite (gitRepoLock
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesUndo :: GitLock -> Maybe String -> String -> String -> Handler RecipesStatusResponse
-recipesUndo repoLock mbranch recipe_name commit = liftIO $ RWL.withWrite (gitRepoLock repoLock) $ do
+recipesUndo :: ServerConfig -> Maybe String -> String -> String -> Handler RecipesStatusResponse
+recipesUndo ServerConfig{..} mbranch recipe_name commit = liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) $ do
     result <- catch_recipe_undo
     case result of
         Left err -> return $ RecipesStatusResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
@@ -688,7 +689,7 @@ recipesUndo repoLock mbranch recipe_name commit = liftIO $ RWL.withWrite (gitRep
   where
     catch_recipe_undo :: IO (Either String Git.OId)
     catch_recipe_undo =
-        CE.catches (Right <$> revertRecipe (gitRepo repoLock) (defaultBranch mbranch) (T.pack recipe_name) (T.pack commit))
+        CE.catches (Right <$> revertRecipe (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name) (T.pack commit))
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
@@ -709,8 +710,8 @@ recipesUndo repoLock mbranch recipe_name commit = liftIO $ RWL.withWrite (gitRep
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesWorkspace :: GitLock -> Maybe String -> Recipe -> Handler RecipesStatusResponse
-recipesWorkspace repoLock mbranch recipe = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesWorkspace :: ServerConfig -> Maybe String -> Recipe -> Handler RecipesStatusResponse
+recipesWorkspace ServerConfig{..} mbranch recipe = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
     result <- catch_recipe_ws
     case result of
         Left err -> return $ RecipesStatusResponse False [RecipesAPIError "Unknown" (T.pack err)]
@@ -718,7 +719,7 @@ recipesWorkspace repoLock mbranch recipe = liftIO $ RWL.withRead (gitRepoLock re
   where
     catch_recipe_ws :: IO (Either String ())
     catch_recipe_ws =
-        CE.catches (Right <$> workspaceWrite (gitRepo repoLock) (defaultBranch mbranch) recipe)
+        CE.catches (Right <$> workspaceWrite (gitRepo cfgRepoLock) (defaultBranch mbranch) recipe)
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
@@ -736,8 +737,8 @@ recipesWorkspace repoLock mbranch recipe = liftIO $ RWL.withRead (gitRepoLock re
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesWorkspaceDelete :: GitLock -> Maybe String -> String -> Handler RecipesStatusResponse
-recipesWorkspaceDelete repoLock mbranch recipe_name = liftIO $ RWL.withWrite (gitRepoLock repoLock) $ do
+recipesWorkspaceDelete :: ServerConfig -> Maybe String -> String -> Handler RecipesStatusResponse
+recipesWorkspaceDelete ServerConfig{..} mbranch recipe_name = liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) $ do
     result <- catch_recipe_delete
     case result of
         Left err -> return $ RecipesStatusResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
@@ -745,7 +746,7 @@ recipesWorkspaceDelete repoLock mbranch recipe_name = liftIO $ RWL.withWrite (gi
   where
     catch_recipe_delete :: IO (Either String ())
     catch_recipe_delete =
-        CE.catches (Right <$> workspaceDelete (gitRepo repoLock) (defaultBranch mbranch) (T.pack recipe_name))
+        CE.catches (Right <$> workspaceDelete (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name))
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
@@ -765,8 +766,8 @@ recipesWorkspaceDelete repoLock mbranch recipe_name = liftIO $ RWL.withWrite (gi
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesTag :: GitLock -> Maybe String -> String -> Handler RecipesStatusResponse
-recipesTag repoLock mbranch recipe_name = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesTag :: ServerConfig -> Maybe String -> String -> Handler RecipesStatusResponse
+recipesTag ServerConfig{..} mbranch recipe_name = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
     result <- catch_recipe_tag
     case result of
         Left  err    -> return $ RecipesStatusResponse False [RecipesAPIError "Unknown" (T.pack err)]
@@ -774,7 +775,7 @@ recipesTag repoLock mbranch recipe_name = liftIO $ RWL.withRead (gitRepoLock rep
   where
     catch_recipe_tag :: IO (Either String Bool)
     catch_recipe_tag =
-        CE.catches (Right <$> tagRecipeCommit (gitRepo repoLock) (defaultBranch mbranch) (T.pack recipe_name))
+        CE.catches (Right <$> tagRecipeCommit (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name))
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
@@ -880,8 +881,8 @@ instance FromJSON RecipesDiffResponse where
 -- >         }
 -- >     ]
 -- > }
-recipesDiff :: GitLock -> Maybe String -> String -> String -> String -> Handler RecipesDiffResponse
-recipesDiff repoLock mbranch recipe_name from_commit to_commit = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesDiff :: ServerConfig -> Maybe String -> String -> String -> String -> Handler RecipesDiffResponse
+recipesDiff ServerConfig{..} mbranch recipe_name from_commit to_commit = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
     -- Setup old_recipe
     -- NEWEST == read the latest git commit for recipe_name
     -- Otherwise try to read the passed-in commit hash string
@@ -913,13 +914,13 @@ recipesDiff repoLock mbranch recipe_name from_commit to_commit = liftIO $ RWL.wi
     -- | Read the recipe from the workspace, and convert WorkspaceErrors into Nothing
     catch_ws_recipe :: T.Text -> IO (Maybe Recipe)
     catch_ws_recipe name =
-        CE.catch (workspaceRead (gitRepo repoLock) (defaultBranch mbranch) name)
+        CE.catch (workspaceRead (gitRepo cfgRepoLock) (defaultBranch mbranch) name)
                  (\(_ :: WorkspaceError) -> return Nothing)
 
     -- | Read the recipe from git, and convert errors into Left descriptions of what went wrong.
     catch_git_recipe :: T.Text -> Maybe T.Text -> IO (Either String Recipe)
     catch_git_recipe name commit =
-        CE.catches (readRecipeCommit (gitRepo repoLock) (defaultBranch mbranch) name commit)
+        CE.catches (readRecipeCommit (gitRepo cfgRepoLock) (defaultBranch mbranch) name commit)
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
@@ -1075,8 +1076,8 @@ instance FromJSON RecipesDepsolveResponse where
 -- >         }
 -- >     ]
 -- > }
-recipesDepsolve :: ConnectionPool -> GitLock -> Maybe String -> String -> Handler RecipesDepsolveResponse
-recipesDepsolve pool repoLock mbranch recipe_names = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesDepsolve :: ServerConfig -> Maybe String -> String -> Handler RecipesDepsolveResponse
+recipesDepsolve ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
     let recipe_name_list = map T.pack (argify [recipe_names])
     (recipes, errors) <- liftIO $ allRecipeDeps recipe_name_list [] []
     return $ RecipesDepsolveResponse recipes errors
@@ -1090,13 +1091,13 @@ recipesDepsolve pool repoLock mbranch recipe_names = liftIO $ RWL.withRead (gitR
                   allRecipeDeps xs new_recipes new_errors
 
     depsolveRecipe :: T.Text -> [RecipeDependencies] ->  [RecipesAPIError] -> IO ([RecipeDependencies], [RecipesAPIError])
-    depsolveRecipe recipe_name recipes_list errors_list = getRecipeInfo repoLock (defaultBranch mbranch) recipe_name >>= \case
+    depsolveRecipe recipe_name recipes_list errors_list = getRecipeInfo cfgRepoLock (defaultBranch mbranch) recipe_name >>= \case
         Left err          -> return (recipes_list, RecipesAPIError recipe_name (T.pack err):errors_list)
         Right (_, recipe) -> do
             -- Make a list of the packages and modules (a set) and sort it by lowercase names
             let projects_name_list = map T.pack $ getAllRecipeProjects recipe
             -- depsolve this list
-            depsolveProjects pool projects_name_list >>= \case
+            depsolveProjects cfgPool projects_name_list >>= \case
                 Left err         -> return (recipes_list, RecipesAPIError recipe_name (T.pack err):errors_list)
                 Right dep_nevras -> do
                     -- Make a list of the NEVRAs for the names in the step above (frozen list of packages)
@@ -1183,8 +1184,8 @@ instance FromJSON RecipesFreezeResponse where
 -- >         }
 -- >     ]
 -- > }
-recipesFreeze :: ConnectionPool -> GitLock -> Maybe String -> String -> Handler RecipesFreezeResponse
-recipesFreeze pool repoLock mbranch recipe_names = liftIO $ RWL.withRead (gitRepoLock repoLock) $ do
+recipesFreeze :: ServerConfig -> Maybe String -> String -> Handler RecipesFreezeResponse
+recipesFreeze ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
     let recipe_name_list = map T.pack (argify [recipe_names])
     (recipes, errors) <- liftIO $ allRecipeDeps recipe_name_list [] []
     return $ RecipesFreezeResponse recipes errors
@@ -1199,14 +1200,14 @@ recipesFreeze pool repoLock mbranch recipe_names = liftIO $ RWL.withRead (gitRep
 
     depsolveRecipe :: T.Text -> [Recipe] ->  [RecipesAPIError] -> IO ([Recipe], [RecipesAPIError])
     depsolveRecipe recipe_name recipes_list errors_list = do
-        result <- getRecipeInfo repoLock (defaultBranch mbranch) recipe_name
+        result <- getRecipeInfo cfgRepoLock (defaultBranch mbranch) recipe_name
         case result of
             Left err          -> return (recipes_list, RecipesAPIError recipe_name (T.pack err):errors_list)
             Right (_, recipe) -> do
                 -- Make a list of the packages and modules (a set) and sort it by lowercase names
                 let projects_name_list = map T.pack $ getAllRecipeProjects recipe
                 -- depsolve this list
-                dep_result <- depsolveProjects pool projects_name_list
+                dep_result <- depsolveProjects cfgPool projects_name_list
                 case dep_result of
                     Left err         -> return (recipes_list, RecipesAPIError recipe_name (T.pack err):errors_list)
                     Right dep_nevras -> return (frozenRecipe recipe dep_nevras:recipes_list, errors_list)
@@ -1318,9 +1319,9 @@ instance FromJSON ProjectsListResponse where
 -- >     ],
 -- >     "total": 2117
 -- > }
-projectsList :: ConnectionPool -> Maybe Int -> Maybe Int -> Handler ProjectsListResponse
-projectsList pool moffset mlimit = do
-    result <- runExceptT $ runSqlPool projects pool
+projectsList :: ServerConfig -> Maybe Int -> Maybe Int -> Handler ProjectsListResponse
+projectsList ServerConfig{..} moffset mlimit = do
+    result <- runExceptT $ runSqlPool projects cfgPool
     case result of
         -- TODO Properly report errors with a different response
         Left _         -> return $ ProjectsListResponse [] offset limit 0
@@ -1366,15 +1367,15 @@ instance FromJSON ProjectsInfoResponse where
 -- >     ]
 -- > }
 -- >
-projectsInfo :: ConnectionPool -> String -> Handler ProjectsInfoResponse
-projectsInfo pool project_names = do
+projectsInfo :: ServerConfig -> String -> Handler ProjectsInfoResponse
+projectsInfo ServerConfig{..} project_names = do
     let project_name_list = map T.pack $ sortBy caseInsensitive $ argify [project_names]
     projects_info <- liftIO $ mapMaybeM getProjectInfo project_name_list
     return $ ProjectsInfoResponse projects_info
   where
     getProjectInfo :: T.Text -> IO (Maybe Projects)
     getProjectInfo project_name = do
-        result <- runExceptT $ flip runSqlPool pool $ findProject project_name >>= \case
+        result <- runExceptT $ flip runSqlPool cfgPool $ findProject project_name >>= \case
             Nothing      -> return Nothing
             Just proj_id -> getProject proj_id
         case result of
@@ -1397,10 +1398,10 @@ instance FromJSON ProjectsDepsolveResponse where
 
 -- | /api/v0/projects/depsolve/<projects>
 -- Return the dependencies of a comma separated list of projects
-projectsDepsolve :: ConnectionPool -> String -> Handler ProjectsDepsolveResponse
-projectsDepsolve pool project_names = do
+projectsDepsolve :: ServerConfig -> String -> Handler ProjectsDepsolveResponse
+projectsDepsolve ServerConfig{..} project_names = do
         let project_name_list = map T.pack (argify [project_names])
-        liftIO $ depsolveProjects pool project_name_list >>= \case
+        liftIO $ depsolveProjects cfgPool project_name_list >>= \case
             Left _             -> return $ ProjectsDepsolveResponse []
             Right project_deps -> return $ ProjectsDepsolveResponse project_deps
 
@@ -1480,9 +1481,9 @@ instance FromJSON ModulesListResponse where
 -- >      "limit": 20,
 -- >      "total": 6
 -- >  }
-modulesList :: ConnectionPool -> Maybe Int -> Maybe Int -> [T.Text] -> Handler ModulesListResponse
-modulesList pool moffset mlimit module_names = do
-    result <- runExceptT $ runSqlPool groups pool
+modulesList :: ServerConfig -> Maybe Int -> Maybe Int -> [T.Text] -> Handler ModulesListResponse
+modulesList ServerConfig{..} moffset mlimit module_names = do
+    result <- runExceptT $ runSqlPool groups cfgPool
     case result of
         Left _       -> return $ ModulesListResponse [] offset limit 0
         Right tuples -> let names = map snd $ applyLimits limit offset tuples
