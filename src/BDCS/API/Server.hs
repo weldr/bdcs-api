@@ -113,8 +113,8 @@ app cfg = appCors
 -- | Create the server app
 --
 -- Create a SQLite connection pool, open/create the Git repo, and return the app
-mkApp :: FilePath -> FilePath -> IO Application
-mkApp gitRepoPath sqliteDbPath = do
+mkApp :: FilePath -> FilePath -> FilePath -> IO Application
+mkApp bdcsPath gitRepoPath sqliteDbPath = do
     pool <- runStderrLoggingT $ createSqlitePool (cs sqliteDbPath) 5
 --    runSqlPool (runMigration migrateAll) pool
 
@@ -124,10 +124,11 @@ mkApp gitRepoPath sqliteDbPath = do
     lock <- RWL.new
 
     let cfg = ServerConfig { cfgRepoLock = GitLock lock repo,
-                             cfgPool = pool }
+                             cfgPool = pool,
+                             cfgBdcs = bdcsPath }
 
     return $ app cfg
 
 -- | Run the API server
-runServer :: Int -> FilePath -> FilePath -> IO ()
-runServer port gitRepoPath sqliteDbPath = run port =<< mkApp gitRepoPath sqliteDbPath
+runServer :: Int -> FilePath -> FilePath -> FilePath -> IO ()
+runServer port bdcsPath gitRepoPath sqliteDbPath = run port =<< mkApp bdcsPath gitRepoPath sqliteDbPath

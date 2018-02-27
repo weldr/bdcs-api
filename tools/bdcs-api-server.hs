@@ -35,4 +35,4 @@ main = do
         else
             putStrLn ("bdcs-api " ++ git_version)
 
-    runServer (optPort opts) (optRecipeRepo opts) (optMetadataDB opts)
+    runServer (optPort opts) (optBDCS opts) (optRecipeRepo opts) (optMetadataDB opts)

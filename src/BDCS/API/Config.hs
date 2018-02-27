@@ -26,4 +26,5 @@ import Database.Persist.Sql(ConnectionPool)
 data ServerConfig = ServerConfig
   {  cfgRepoLock    :: GitLock                                  -- ^ Lock required for accessing recipe repo
   ,  cfgPool        :: ConnectionPool                           -- ^ SQL connection pool for accessing MDDB
+  ,  cfgBdcs        :: FilePath                                 -- ^ Location of the content store
   }
