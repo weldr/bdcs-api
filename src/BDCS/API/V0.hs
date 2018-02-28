@@ -60,6 +60,7 @@ import           BDCS.API.Workspace
 import           BDCS.DB
 import           BDCS.Depclose(depcloseNames)
 import           BDCS.Depsolve(formulaToCNF, solveCNF)
+import           BDCS.Export(export)
 import           BDCS.Export.Utils(supportedOutputs)
 import           BDCS.Groups(groupIdToNevra, groups)
 import           BDCS.Projects(findProject, getProject, projects)
@@ -68,15 +69,20 @@ import           BDCS.Utils.Monad(mapMaybeM)
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import qualified Control.Exception as CE
 import           Control.Monad.Except
+import           Control.Monad.Trans.Resource(runResourceT)
 import           Data.Aeson
 import           Data.List(find, sortBy)
 import           Data.Maybe(fromMaybe, mapMaybe)
 import           Data.String.Conversions(cs)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import           Database.Persist.Sql
 import           Data.GI.Base(GError(..))
+import           Data.UUID.V4(nextRandom)
 import qualified GI.Ggit as Git
 import           Servant
+import           System.Directory(createDirectoryIfMissing)
+import           System.FilePath.Posix((</>))
 
 
 {-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
@@ -165,6 +171,9 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                   :> QueryParam "offset" Int
                                   :> QueryParam "limit" Int
                                   :> Get '[JSON] ModulesListResponse
+        :<|> "compose"  :> ReqBody '[JSON] ComposeBody
+                        :> QueryParam "test" Int
+                        :> Post '[JSON] ComposeResponse
         :<|> "compose"  :> "types" :> Get '[JSON] ComposeTypesResponse
 
 -- | Connect the V0API type to all of the handlers
@@ -187,6 +196,7 @@ v0ApiServer cfg = projectsListH
              :<|> recipesFreezeH
              :<|> modulesListH
              :<|> modulesListFilteredH
+             :<|> composeH
              :<|> composeTypesH
   where
     projectsListH offset limit                       = projectsList cfg offset limit
@@ -207,6 +217,7 @@ v0ApiServer cfg = projectsListH
     recipesFreezeH recipes branch                    = recipesFreeze cfg branch recipes
     modulesListH offset limit                        = modulesList cfg offset limit []
     modulesListFilteredH module_names offset limit   = modulesList cfg offset limit (T.splitOn "," $ cs module_names)
+    composeH body test                               = compose cfg body test
     composeTypesH                                    = composeTypes
 
 -- | A test using ServantErr
@@ -1502,6 +1513,95 @@ modulesList ServerConfig{..} moffset mlimit module_names = do
     mkModuleName :: T.Text -> ModuleName
     mkModuleName name = ModuleName { mnName=name, mnGroupType="rpm" }
 
+data ComposeBody = ComposeBody {
+    cbName :: T.Text,                                                   -- ^ Recipe name (from /recipes/list)
+    cbType :: T.Text,                                                   -- ^ Compose type (from /compose/types)
+    cbBranch :: Maybe T.Text                                            -- ^ The git branch to use for this recipe
+} deriving (Show, Eq)
+
+instance ToJSON ComposeBody where
+    toJSON ComposeBody{..} = object [
+        "recipe_name"   .= cbName
+      , "compose_type"  .= cbType
+      , "branch"        .= fromMaybe "master" cbBranch ]
+
+instance FromJSON ComposeBody where
+    parseJSON = withObject "compose" $ \o -> do
+        cbName   <- o .:  "recipe_name"
+        cbType   <- o .:  "compose_type"
+        cbBranch <- o .:? "branch"
+        return ComposeBody{..}
+
+-- | JSON status response
+data ComposeResponse = ComposeResponse {
+    crStatus :: Bool,                                                   -- ^ Success/Failure of the request
+    crBuildIDs :: [T.Text],                                             -- ^ UUID of the in-progress build
+    crErrors :: [T.Text]                                                -- ^ Errors
+} deriving (Show, Eq)
+
+instance ToJSON ComposeResponse where
+  toJSON ComposeResponse{..} = object [
+      "status"    .= crStatus
+    , "build_ids" .= crBuildIDs
+    , "errors"    .= crErrors ]
+
+instance FromJSON ComposeResponse where
+  parseJSON = withObject "/compose response" $ \o -> do
+    crStatus   <- o .: "status"
+    crBuildIDs <- o .: "build_ids"
+    crErrors   <- o .: "errors"
+    return ComposeResponse{..}
+
+
+-- | POST /api/v0/compose
+-- Start a compose.
+compose :: ServerConfig -> ComposeBody -> Maybe Int -> Handler ComposeResponse
+compose cfg@ServerConfig{..} ComposeBody{..} test | cbType `notElem` supportedOutputs =
+    return $ ComposeResponse False [] [T.concat ["Invalid compose type (", cs cbType, "), must be one of ", T.intercalate "," supportedOutputs]]
+                                           | otherwise =
+    withRecipe cfgRepoLock cbBranch cbName $ \recipe -> do
+        buildId <- liftIO nextRandom
+        let resultsDir = cfgResultsDir </> show buildId
+        liftIO $ createDirectoryIfMissing True resultsDir
+
+        -- Write out the original recipe.
+        liftIO $ TIO.writeFile (resultsDir </> "recipe.toml") (recipeTOML recipe)
+
+        -- Freeze the recipe so we have precise versions of its components.  This could potentially
+        -- return multiple frozen recipes, but I think only if we asked it to do multiple things.
+        -- We did not, so we can safely assume there's only one result.
+        withFrozenRecipe cbBranch cbName $ \frozen -> do
+            liftIO $ TIO.writeFile (resultsDir </> "frozen.toml") (recipeTOML frozen)
+
+            -- And then depsolve the thing so we know what packages to compose with.
+            withDependencies cbBranch cbName $ \deps -> do
+                let dest   = resultsDir </> "compose." ++ T.unpack cbType
+                    nevras = map pkgString (rdDependencies deps)
+
+                runExceptT (runResourceT $ runSqlPool (export cfgBdcs dest nevras) cfgPool) >>= \case
+                    Left err -> return $ ComposeResponse False [] [T.pack $ show err]
+                    Right _  -> return $ ComposeResponse True [T.pack $ show buildId] []
+ where
+    pkgString :: PackageNEVRA -> T.Text
+    pkgString PackageNEVRA{..} = T.concat [pnName, "-", pnVersion, "-", pnRelease, ".", pnArch]
+
+    withRecipe :: GitLock -> Maybe T.Text -> T.Text -> (Recipe -> Handler ComposeResponse) -> Handler ComposeResponse
+    withRecipe lock branch name fn =
+        liftIO (getRecipeInfo lock (defaultBranch $ fmap cs branch) name) >>= \case
+            Left err          -> return $ ComposeResponse False [] [T.pack err]
+            Right (_, recipe) -> fn recipe
+
+    withFrozenRecipe :: Maybe T.Text -> T.Text -> (Recipe -> Handler ComposeResponse) -> Handler ComposeResponse
+    withFrozenRecipe branch name fn =
+        recipesFreeze cfg (fmap cs branch) (cs name) >>= \case
+            RecipesFreezeResponse [] errs      -> return $ ComposeResponse False [] (map (T.pack . show) errs)
+            RecipesFreezeResponse (frozen:_) _ -> fn frozen
+
+    withDependencies :: Maybe T.Text -> T.Text -> (RecipeDependencies -> Handler ComposeResponse) -> Handler ComposeResponse
+    withDependencies branch name fn =
+        recipesDepsolve cfg (fmap cs branch) (cs name) >>= \case
+            RecipesDepsolveResponse [] errs    -> return $ ComposeResponse False [] (map (T.pack . show) errs)
+            RecipesDepsolveResponse (deps:_) _ -> fn deps
 
 -- | The JSON response for /compose/types
 data ComposeType = ComposeType {
