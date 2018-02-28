@@ -125,7 +125,8 @@ mkApp bdcsPath gitRepoPath sqliteDbPath = do
 
     let cfg = ServerConfig { cfgRepoLock = GitLock lock repo,
                              cfgPool = pool,
-                             cfgBdcs = bdcsPath }
+                             cfgBdcs = bdcsPath,
+                             cfgResultsDir = "/var/lib/composer" }
 
     return $ app cfg
 
