@@ -21,10 +21,13 @@ module BDCS.API.Config(ServerConfig(..))
   where
 
 import BDCS.API.Utils(GitLock(..))
+import BDCS.API.Compose(ComposeInfo)
+import Control.Concurrent.STM.TQueue(TQueue)
 import Database.Persist.Sql(ConnectionPool)
 
 data ServerConfig = ServerConfig
   {  cfgRepoLock    :: GitLock                                  -- ^ Lock required for accessing recipe repo
+  ,  cfgWorkQ       :: TQueue ComposeInfo                       -- ^ Worklist of composes
   ,  cfgPool        :: ConnectionPool                           -- ^ SQL connection pool for accessing MDDB
   ,  cfgBdcs        :: FilePath                                 -- ^ Location of the content store
   ,  cfgResultsDir  :: FilePath                                 -- ^ Base location for writing results

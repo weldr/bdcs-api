@@ -32,13 +32,17 @@ module BDCS.API.Server(mkApp,
                        ServerStatus(..))
   where
 
+import           BDCS.API.Compose(compose)
 import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Recipes(openOrCreateRepo, commitRecipeDirectory)
 import           BDCS.API.Utils(GitLock(..))
 import           BDCS.API.V0(V0API, v0ApiServer)
+import           Control.Concurrent(forkIO)
 import qualified Control.Concurrent.ReadWriteLock as RWL
-import           Control.Monad(void)
+import           Control.Concurrent.STM.TQueue(newTQueue, readTQueue)
+import           Control.Monad(forever, void)
 import           Control.Monad.Logger(runStderrLoggingT)
+import           Control.Monad.STM(atomically)
 import           Data.Aeson
 import           Data.String.Conversions(cs)
 import           Database.Persist.Sqlite
@@ -123,10 +127,21 @@ mkApp bdcsPath gitRepoPath sqliteDbPath = do
     void $ commitRecipeDirectory repo "master" gitRepoPath
     lock <- RWL.new
 
+    q <- atomically newTQueue
+
     let cfg = ServerConfig { cfgRepoLock = GitLock lock repo,
+                             cfgWorkQ = q,
                              cfgPool = pool,
                              cfgBdcs = bdcsPath,
                              cfgResultsDir = "/var/lib/composer" }
+
+    -- Fork off another process that does the composes in the background,
+    -- which means the client immediately gets a response with a build ID.
+    -- The compose (which could take a while) proceeds independently.  The
+    -- client uses a different route to check and fetch the results.
+    void $ forkIO $ forever $ do
+        ci <- atomically $ readTQueue q
+        compose (cfgBdcs cfg) (cfgPool cfg) ci
 
     return $ app cfg
 

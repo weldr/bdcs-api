@@ -50,6 +50,7 @@ module BDCS.API.V0(ComposeTypesResponse(..),
                v0ApiServer)
 where
 
+import           BDCS.API.Compose(ComposeInfo(..))
 import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
@@ -60,16 +61,16 @@ import           BDCS.API.Workspace
 import           BDCS.DB
 import           BDCS.Depclose(depcloseNames)
 import           BDCS.Depsolve(formulaToCNF, solveCNF)
-import           BDCS.Export(export)
 import           BDCS.Export.Utils(supportedOutputs)
 import           BDCS.Groups(groupIdToNevra, groups)
 import           BDCS.Projects(findProject, getProject, projects)
 import           BDCS.RPM.Utils(splitFilename)
 import           BDCS.Utils.Monad(mapMaybeM)
 import qualified Control.Concurrent.ReadWriteLock as RWL
+import           Control.Concurrent.STM(writeTQueue)
 import qualified Control.Exception as CE
 import           Control.Monad.Except
-import           Control.Monad.Trans.Resource(runResourceT)
+import           Control.Monad.STM(atomically)
 import           Data.Aeson
 import           Data.List(find, sortBy)
 import           Data.Maybe(fromMaybe, mapMaybe)
@@ -1577,10 +1578,14 @@ compose cfg@ServerConfig{..} ComposeBody{..} test | cbType `notElem` supportedOu
             withDependencies cbBranch cbName $ \deps -> do
                 let dest   = resultsDir </> "compose." ++ T.unpack cbType
                     nevras = map pkgString (rdDependencies deps)
+                    ci     = ComposeInfo { ciDest=dest,
+                                           ciId=T.pack $ show buildId,
+                                           ciResultsDir=resultsDir,
+                                           ciThings=nevras,
+                                           ciType=cbType }
 
-                runExceptT (runResourceT $ runSqlPool (export cfgBdcs dest nevras) cfgPool) >>= \case
-                    Left err -> return $ ComposeResponse False [] [T.pack $ show err]
-                    Right _  -> return $ ComposeResponse True [T.pack $ show buildId] []
+                liftIO $ atomically $ writeTQueue cfgWorkQ ci
+                return $ ComposeResponse True [T.pack $ show buildId] []
  where
     pkgString :: PackageNEVRA -> T.Text
     pkgString PackageNEVRA{..} = T.concat [pnName, "-", pnVersion, "-", pnRelease, ".", pnArch]
