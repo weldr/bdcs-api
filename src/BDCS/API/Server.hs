@@ -16,6 +16,7 @@
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
@@ -32,19 +33,22 @@ module BDCS.API.Server(mkApp,
                        ServerStatus(..))
   where
 
-import           BDCS.API.Compose(compose)
-import           BDCS.API.Config(ServerConfig(..))
+import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), compose)
+import           BDCS.API.Config(AskTuple, ServerConfig(..))
 import           BDCS.API.Recipes(openOrCreateRepo, commitRecipeDirectory)
 import           BDCS.API.Utils(GitLock(..))
 import           BDCS.API.V0(V0API, v0ApiServer)
-import           Control.Concurrent(forkIO)
+import           Control.Concurrent(ThreadId, forkFinally, forkIO)
 import qualified Control.Concurrent.ReadWriteLock as RWL
-import           Control.Concurrent.STM.TChan(newTChan)
-import           Control.Concurrent.STM.TQueue(newTQueue, readTQueue)
+import           Control.Concurrent.STM.TChan(newTChan, tryReadTChan)
+import           Control.Concurrent.STM.TMVar(putTMVar)
+import           Control.Conditional(whenM)
 import           Control.Monad(forever, void)
 import           Control.Monad.Logger(runStderrLoggingT)
 import           Control.Monad.STM(atomically)
 import           Data.Aeson
+import           Data.IORef(IORef, atomicModifyIORef', atomicWriteIORef, newIORef, readIORef)
+import           Data.Maybe(isNothing)
 import           Data.String.Conversions(cs)
 import           Database.Persist.Sqlite
 import qualified GI.Ggit as Git
@@ -128,7 +132,7 @@ mkApp bdcsPath gitRepoPath sqliteDbPath = do
     void $ commitRecipeDirectory repo "master" gitRepoPath
     lock <- RWL.new
 
-    q <- atomically newTQueue
+    q    <- newIORef []
     chan <- atomically newTChan
 
     let cfg = ServerConfig { cfgRepoLock = GitLock lock repo,
@@ -142,12 +146,58 @@ mkApp bdcsPath gitRepoPath sqliteDbPath = do
     -- which means the client immediately gets a response with a build ID.
     -- The compose (which could take a while) proceeds independently.  The
     -- client uses a different route to check and fetch the results.
-    void $ forkIO $ forever $ do
-        ci <- atomically $ readTQueue q
-        compose (cfgBdcs cfg) (cfgPool cfg) ci
+    void $ forkIO $ composeServer cfg
 
     return $ app cfg
 
 -- | Run the API server
 runServer :: Int -> FilePath -> FilePath -> FilePath -> IO ()
 runServer port bdcsPath gitRepoPath sqliteDbPath = run port =<< mkApp bdcsPath gitRepoPath sqliteDbPath
+
+composeServer :: ServerConfig -> IO ()
+composeServer ServerConfig{..} = do
+    -- A mutable variable to hold information about the currently running compose.
+    -- Since we just support one compose at a time, this will just store a tuple of
+    -- thread ID and ComposeInfo record.  If this is Nothing, no compose is currently
+    -- running.
+    cur <- newIORef Nothing
+
+    -- We run in a loop forever doing two tasks:
+    --
+    -- (1) Reading questions out of the shared one-way communications channel and
+    -- sending responses back to the API server.
+    --
+    -- (2) Firing off composes for requests in the queue.
+    forever $ do
+        atomically (tryReadTChan cfgChan) >>= respondToMessage cur
+
+        -- If the mutable variable is not Nothing, we are already running a compose.
+        -- Don't try to start another one.  This leaves the work queue alone so we
+        -- can grab the next item later.
+        whenM (isNothing <$> readIORef cur) $
+            nextInQ cfgWorkQ >>= \case
+                -- Start another compose.  When the thread finishes (either because the
+                -- compose is done or because it failed), clear out the mutable variable.
+                Just ci -> do threadId <- forkFinally (compose cfgBdcs cfgPool ci)
+                                                      (\_ -> atomicWriteIORef cur Nothing)
+
+                              atomicWriteIORef cur (Just (threadId, ci))
+
+                _ -> return ()
+ where
+    -- Pop the next element off the head of the queue and return it.
+    nextInQ :: IORef [a] -> IO (Maybe a)
+    nextInQ q = atomicModifyIORef' q (\case (hd:tl) -> (tl, Just hd)
+                                            _       -> ([], Nothing))
+
+    respondToMessage :: IORef (Maybe (ThreadId, ComposeInfo)) -> Maybe AskTuple -> IO ()
+    respondToMessage _ (Just (AskBuildsWaiting, r)) = do
+        q <- readIORef cfgWorkQ
+        atomically $ putTMVar r (RespBuildsWaiting $ map ciId q)
+
+    respondToMessage cur (Just (AskBuildsInProgress, r)) =
+        readIORef cur >>= \case
+            Nothing                   -> atomically $ putTMVar r (RespBuildsInProgress [])
+            Just (_, ComposeInfo{..}) -> atomically $ putTMVar r (RespBuildsInProgress [ciId])
+
+    respondToMessage _ _ = return ()

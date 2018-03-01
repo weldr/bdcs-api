@@ -69,11 +69,10 @@ import           BDCS.Projects(findProject, getProject, projects)
 import           BDCS.RPM.Utils(splitFilename)
 import           BDCS.Utils.Monad(mapMaybeM)
 import qualified Control.Concurrent.ReadWriteLock as RWL
-import           Control.Concurrent.STM(writeTQueue)
 import qualified Control.Exception as CE
 import           Control.Monad.Except
-import           Control.Monad.STM(atomically)
 import           Data.Aeson
+import           Data.IORef(atomicModifyIORef')
 import           Data.List(find, sortBy)
 import           Data.Maybe(fromMaybe, mapMaybe)
 import           Data.String.Conversions(cs)
@@ -1586,7 +1585,7 @@ compose cfg@ServerConfig{..} ComposeBody{..} test | cbType `notElem` supportedOu
                                            ciThings=nevras,
                                            ciType=cbType }
 
-                liftIO $ atomically $ writeTQueue cfgWorkQ ci
+                liftIO $ void $ atomicModifyIORef' cfgWorkQ (\ref -> (ref ++ [ci], ()))
                 return $ ComposeResponse True [T.pack $ show buildId] []
  where
     pkgString :: PackageNEVRA -> T.Text
