@@ -21,6 +21,8 @@
 {-| BDCS API Compose-related types and functions
 -}
 module BDCS.API.Compose(ComposeInfo(..),
+                        ComposeMsgAsk(..),
+                        ComposeMsgResp(..),
                         compose)
   where
 
@@ -39,6 +41,12 @@ data ComposeInfo = ComposeInfo
   ,  ciThings     :: [T.Text]                                   -- ^ Items to go into the compose
   ,  ciType       :: T.Text                                     -- ^ Build type (tar, etc.)
   } deriving (Eq, Show)
+
+data ComposeMsgAsk = AskBuildsWaiting
+                   | AskBuildsInProgress
+
+data ComposeMsgResp = RespBuildsWaiting [T.Text]
+                    | RespBuildsInProgress [T.Text]
 
 compose :: FilePath -> ConnectionPool -> ComposeInfo -> IO ()
 compose bdcs pool ComposeInfo{..} = do

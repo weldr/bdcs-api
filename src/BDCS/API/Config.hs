@@ -21,12 +21,15 @@ module BDCS.API.Config(ServerConfig(..))
   where
 
 import BDCS.API.Utils(GitLock(..))
-import BDCS.API.Compose(ComposeInfo)
+import BDCS.API.Compose(ComposeInfo, ComposeMsgAsk)
+import Control.Concurrent.STM.TChan(TChan)
 import Control.Concurrent.STM.TQueue(TQueue)
 import Database.Persist.Sql(ConnectionPool)
 
 data ServerConfig = ServerConfig
   {  cfgRepoLock    :: GitLock                                  -- ^ Lock required for accessing recipe repo
+  ,  cfgChan        :: TChan ComposeMsgAsk                      -- ^ Channel for the API server to ask things of
+                                                                -- the compose server
   ,  cfgWorkQ       :: TQueue ComposeInfo                       -- ^ Worklist of composes
   ,  cfgPool        :: ConnectionPool                           -- ^ SQL connection pool for accessing MDDB
   ,  cfgBdcs        :: FilePath                                 -- ^ Location of the content store

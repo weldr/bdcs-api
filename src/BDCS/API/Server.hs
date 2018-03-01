@@ -39,6 +39,7 @@ import           BDCS.API.Utils(GitLock(..))
 import           BDCS.API.V0(V0API, v0ApiServer)
 import           Control.Concurrent(forkIO)
 import qualified Control.Concurrent.ReadWriteLock as RWL
+import           Control.Concurrent.STM.TChan(newTChan)
 import           Control.Concurrent.STM.TQueue(newTQueue, readTQueue)
 import           Control.Monad(forever, void)
 import           Control.Monad.Logger(runStderrLoggingT)
@@ -128,8 +129,10 @@ mkApp bdcsPath gitRepoPath sqliteDbPath = do
     lock <- RWL.new
 
     q <- atomically newTQueue
+    chan <- atomically newTChan
 
     let cfg = ServerConfig { cfgRepoLock = GitLock lock repo,
+                             cfgChan = chan,
                              cfgWorkQ = q,
                              cfgPool = pool,
                              cfgBdcs = bdcsPath,
