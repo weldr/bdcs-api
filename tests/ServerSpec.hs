@@ -50,22 +50,28 @@ getProjectsList :: Maybe Int -> Maybe Int -> ClientM ProjectsListResponse
 getProjectsInfo :: String -> ClientM ProjectsInfoResponse
 getProjectsDepsolve :: String -> ClientM ProjectsDepsolveResponse
 getErr :: ClientM [T.Text]
-getRecipes :: Maybe Int -> Maybe Int -> ClientM RecipesListResponse
-getRecipesInfo :: String -> ClientM RecipesInfoResponse
-getRecipesChanges :: String -> Maybe Int -> Maybe Int -> ClientM RecipesChangesResponse
-postRecipesNew :: Recipe -> ClientM RecipesStatusResponse
-deleteRecipes :: String -> ClientM RecipesStatusResponse
-postRecipesUndo :: String -> String -> ClientM RecipesStatusResponse
-postRecipesWorkspace :: Recipe -> ClientM RecipesStatusResponse
-postRecipesTag :: String -> ClientM RecipesStatusResponse
-getRecipesDiff :: String -> String -> String -> ClientM RecipesDiffResponse
-getRecipesDepsolve :: String -> ClientM RecipesDepsolveResponse
-getRecipesFreeze :: String -> ClientM RecipesFreezeResponse
+getRecipes :: Maybe Int -> Maybe Int -> Maybe String -> ClientM RecipesListResponse
+getRecipesInfo :: String -> Maybe String -> ClientM RecipesInfoResponse
+getRecipesChanges :: String -> Maybe Int -> Maybe Int -> Maybe String -> ClientM RecipesChangesResponse
+postRecipesNew :: Recipe -> Maybe String -> ClientM RecipesStatusResponse
+deleteRecipes :: String -> Maybe String -> ClientM RecipesStatusResponse
+postRecipesUndo :: String -> String -> Maybe String -> ClientM RecipesStatusResponse
+postRecipesWorkspace :: Recipe -> Maybe String -> ClientM RecipesStatusResponse
+deleteRecipesWorkspace :: String -> Maybe String -> ClientM RecipesStatusResponse
+postRecipesTag :: String -> Maybe String -> ClientM RecipesStatusResponse
+getRecipesDiff :: String -> String -> String -> Maybe String -> ClientM RecipesDiffResponse
+getRecipesDepsolve :: String -> Maybe String -> ClientM RecipesDepsolveResponse
+getRecipesFreeze :: String -> Maybe String -> ClientM RecipesFreezeResponse
+getModulesList :: Maybe Int -> Maybe Int -> ClientM ModulesListResponse
+getModulesList' :: String -> Maybe Int -> Maybe Int -> ClientM ModulesListResponse
+getCompose :: ComposeBody -> Maybe Int -> ClientM ComposeResponse
+getComposeTypes :: ClientM ComposeTypesResponse
 getStatus :<|> getProjectsList :<|> getProjectsInfo :<|> getProjectsDepsolve :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
           :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo
-          :<|> postRecipesWorkspace :<|> postRecipesTag :<|> getRecipesDiff
-          :<|> getRecipesDepsolve :<|> getRecipesFreeze = client proxyAPI
+          :<|> postRecipesWorkspace :<|> deleteRecipesWorkspace :<|> postRecipesTag :<|> getRecipesDiff
+          :<|> getRecipesDepsolve :<|> getRecipesFreeze :<|> getModulesList
+          :<|> getModulesList' :<|> getCompose :<|> getComposeTypes = client proxyAPI
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.
@@ -207,7 +213,7 @@ postMultipleChanges :: ClientM Bool
 postMultipleChanges = allM newVersion [0..10]
   where
     newVersion :: Integer -> ClientM Bool
-    newVersion patch = status_ok <$> postRecipesNew aTestRecipe {rVersion = Just $ patchedVersion patch}
+    newVersion patch = status_ok <$> postRecipesNew aTestRecipe {rVersion = Just $ patchedVersion patch} Nothing
 
     patchedVersion :: Integer -> String
     patchedVersion = printf "0.1.%d"
@@ -218,7 +224,7 @@ postMultipleChanges = allM newVersion [0..10]
 -- If it has 0 errors, 1 change named http-server, 0 offset and a limit of 20 it passes
 recipesChangesTest1 :: ClientM Bool
 recipesChangesTest1 = do
-    response <- getRecipesChanges "http-server" Nothing Nothing
+    response <- getRecipesChanges "http-server" Nothing Nothing Nothing
     return $ length_ok response && name_ok response && error_ok response && limits_ok response
   where
     length_ok :: RecipesChangesResponse -> Bool
@@ -236,7 +242,7 @@ recipesChangesTest1 = do
 -- If it has 0 errors, 1 change named http-server, 1 named glusterfs, 0 offset and a limit of 20 it passes
 recipesChangesTest2 :: ClientM Bool
 recipesChangesTest2 = do
-    response <- getRecipesChanges "http-server,glusterfs" Nothing Nothing
+    response <- getRecipesChanges "http-server,glusterfs" Nothing Nothing Nothing
     return $ length_ok response && name_ok response && error_ok response && limits_ok response
   where
     length_ok :: RecipesChangesResponse -> Bool
@@ -257,7 +263,7 @@ recipesChangesTest2 = do
 -- This must be called after posting > 10 changes to the recipe
 recipesChangesTest3 :: ClientM Bool
 recipesChangesTest3 = do
-    response <- getRecipesChanges "A Test Recipe" (Just 5) (Just 5)
+    response <- getRecipesChanges "A Test Recipe" (Just 5) (Just 5) Nothing
     return $ limits_ok response && length_ok response && name_ok response && total_ok response
   where
     limits_ok :: RecipesChangesResponse -> Bool
@@ -285,31 +291,31 @@ recipesDeleteTest = do
     -- Is the recipe in the list?
     recipe_in_list :: ClientM Bool
     recipe_in_list = do
-        response <- getRecipes Nothing Nothing
+        response <- getRecipes Nothing Nothing Nothing
         return $ "A-Test-Recipe" `elem` rlrRecipes response
 
     -- Delete it from the list
     delete_recipe :: ClientM Bool
-    delete_recipe = rsrStatus <$> deleteRecipes "A Test Recipe"
+    delete_recipe = rsrStatus <$> deleteRecipes "A Test Recipe" Nothing
 
     -- Is it NOT in the list?
     recipe_not_in_list = do
-        response <- getRecipes Nothing Nothing
+        response <- getRecipes Nothing Nothing Nothing
         return $ "A-Test-Recipe" `notElem` rlrRecipes response
 
 -- | Check reverting a recipe to a previous commit
 recipesUndoTest :: ClientM Bool
 recipesUndoTest = do
     -- Get a list of the commits
-    response_1 <- getRecipesChanges "A Test Recipe" Nothing Nothing
+    response_1 <- getRecipesChanges "A Test Recipe" Nothing Nothing Nothing
     let commit = cdCommit (rcChange (rcrRecipes response_1 !! 0) !! 1)
 
     -- Revert to a previous commit
-    rsrStatus <$> postRecipesUndo "A Test Recipe" (T.unpack commit)
+    rsrStatus <$> postRecipesUndo "A Test Recipe" (T.unpack commit) Nothing
 
 -- | Check that writing to the workspace storage works
 recipesWorkspaceTest :: ClientM Bool
-recipesWorkspaceTest = status_ok <$> postRecipesWorkspace aTestRecipe {rDescription = "A workspace only recipe"}
+recipesWorkspaceTest = status_ok <$> postRecipesWorkspace aTestRecipe {rDescription = "A workspace only recipe"} Nothing
   where
     status_ok :: RecipesStatusResponse -> Bool
     status_ok = rsrStatus
@@ -323,29 +329,29 @@ recipesDiffTest = do
     return $ result_1 && result_2 && result_3
   where
     oldest_diff = do
-        response <- getRecipesChanges "A Test Recipe" Nothing Nothing
+        response <- getRecipesChanges "A Test Recipe" Nothing Nothing Nothing
         let first_commit = cdCommit $ last $ rcChange (rcrRecipes response !! 0)
 
-        response_1 <- getRecipesDiff "A Test Recipe" (T.unpack first_commit) "NEWEST"
+        response_1 <- getRecipesDiff "A Test Recipe" (T.unpack first_commit) "NEWEST" Nothing
         let old_version = rdtVersion $ rdeOld (rdrDiff response_1 !! 0)
         let new_version = rdtVersion $ rdeNew (rdrDiff response_1 !! 0)
         return $ old_version /= new_version && new_version == Just "0.1.9"
 
     workspace_diff = do
-        response <- getRecipesChanges "A Test Recipe" Nothing Nothing
+        response <- getRecipesChanges "A Test Recipe" Nothing Nothing Nothing
         let first_commit = cdCommit $ last $ rcChange (rcrRecipes response !! 0)
 
-        response_1 <- getRecipesDiff "A Test Recipe" (T.unpack first_commit) "WORKSPACE"
+        response_1 <- getRecipesDiff "A Test Recipe" (T.unpack first_commit) "WORKSPACE" Nothing
         let old_desc = rdtDescription $ rdeOld (rdrDiff response_1 !! 0)
         let new_desc = rdtDescription $ rdeNew (rdrDiff response_1 !! 0)
         return $ old_desc /= new_desc && new_desc == "A workspace only recipe"
 
     commit_diff = do
-        response <- getRecipesChanges "A Test Recipe" Nothing Nothing
+        response <- getRecipesChanges "A Test Recipe" Nothing Nothing Nothing
         let first_commit = cdCommit $ last $ rcChange (rcrRecipes response !! 0)
         let newer_commit = cdCommit (rcChange (rcrRecipes response !! 0) !! 3)
 
-        response_1 <- getRecipesDiff "A Test Recipe" (T.unpack first_commit) (T.unpack newer_commit)
+        response_1 <- getRecipesDiff "A Test Recipe" (T.unpack first_commit) (T.unpack newer_commit) Nothing
         let old_version = rdtVersion $ rdeOld (rdrDiff response_1 !! 0)
         let new_version = rdtVersion $ rdeNew (rdrDiff response_1 !! 0)
         return $ old_version /= new_version && new_version == Just "0.1.8"
@@ -381,29 +387,29 @@ spec = do
 
     describe "/api" $
         -- NOTE that mkApp is executed for EACH of the 'it' sections
-        withClient (mkApp "/var/tmp/bdcs-tmp-recipes/" "/var/tmp/test-bdcs.db") $ do
+        withClient (mkApp "/var/tmp/content-store" "/var/tmp/bdcs-tmp-recipes/" "/var/tmp/test-bdcs.db") $ do
             it "API Status" $ \env ->
                 try env getStatus `shouldReturn` ServerStatus "0.0.0" "0" "0" False
 
             it "list the available recipes" $ \env ->
-                try env (getRecipes Nothing Nothing) `shouldReturn` recipesListResponse1
+                try env (getRecipes Nothing Nothing Nothing) `shouldReturn` recipesListResponse1
 
             it "list recipes with offset and limit" $ \env ->
-                try env (getRecipes (Just 1) (Just 1)) `shouldReturn` recipesListResponse2
+                try env (getRecipes (Just 1) (Just 1) Nothing) `shouldReturn` recipesListResponse2
 
             it "Get a non-existant recipe's info" $ \env ->
-                try env (getRecipesInfo "missing-recipe") `shouldReturn` missingRecipeResponse
+                try env (getRecipesInfo "missing-recipe" Nothing) `shouldReturn` missingRecipeResponse
 
             it "Get the http-server recipe's info" $ \env ->
-                try env (getRecipesInfo "http-server") `shouldReturn` httpserverRecipeResponse
+                try env (getRecipesInfo "http-server" Nothing) `shouldReturn` httpserverRecipeResponse
 
             it "Get multiple recipe's info" $ \env ->
-                try env (getRecipesInfo "http-server,glusterfs") `shouldReturn` multipleRecipeResponse
+                try env (getRecipesInfo "http-server,glusterfs" Nothing) `shouldReturn` multipleRecipeResponse
 
             it "Get http-server recipe and missing-recipe info" $ \env ->
-                try env (getRecipesInfo "http-server,missing-recipe,glusterfs") `shouldReturn` errorRecipeResponse
+                try env (getRecipesInfo "http-server,missing-recipe,glusterfs" Nothing) `shouldReturn` errorRecipeResponse
             it "Post a test recipe" $ \env ->
-                try env (postRecipesNew aTestRecipe) `shouldReturn` recipesNewResponse
+                try env (postRecipesNew aTestRecipe Nothing) `shouldReturn` recipesNewResponse
 
             it "Post several changes to test recipe" $ \env ->
                 try env postMultipleChanges `shouldReturn` True
@@ -427,22 +433,22 @@ spec = do
                 try env recipesWorkspaceTest `shouldReturn` True
 
             it "Tag the most recent commit of the recipe" $ \env ->
-                try env (postRecipesTag "A Test Recipe") `shouldReturn` RecipesStatusResponse True []
+                try env (postRecipesTag "A Test Recipe" Nothing) `shouldReturn` RecipesStatusResponse True []
 
             it "Get the recipe differences" $ \env ->
                 try env recipesDiffTest `shouldReturn` True
 
             it "Depsolve the test-fake recipe" $ \env ->
-                try env (getRecipesDepsolve "test-fake") `shouldReturn` recipesDepsolveResponse1
+                try env (getRecipesDepsolve "test-fake" Nothing) `shouldReturn` recipesDepsolveResponse1
 
             it "Depsolve an unknown recipe" $ \env ->
-                try env (getRecipesDepsolve "unknown-recipe") `shouldReturn` recipesDepsolveResponse2
+                try env (getRecipesDepsolve "unknown-recipe" Nothing) `shouldReturn` recipesDepsolveResponse2
 
             it "Get a frozen test-fake recipe" $ \env ->
-                try env (getRecipesFreeze "test-fake") `shouldReturn` recipesFreezeResponse1
+                try env (getRecipesFreeze "test-fake" Nothing) `shouldReturn` recipesFreezeResponse1
 
             it "Freeze an unknown recipe" $ \env ->
-                try env (getRecipesFreeze "unknown-recipe") `shouldReturn` recipesFreezeResponse2
+                try env (getRecipesFreeze "unknown-recipe" Nothing) `shouldReturn` recipesFreezeResponse2
 
             it "Depsolve a test package" $ \env ->
                 try env (getProjectsDepsolve "bdcs-fake-lisa") `shouldReturn` projectsDepsolveResponse1
