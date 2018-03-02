@@ -95,6 +95,11 @@ test-suite spec
                         monad-loops >= 0.4.0 && < 0.5,
                         servant-client >= 0.12.0.1 && < 0.13.0.0,
                         servant-server >= 0.12 && < 0.13,
+                        -- FIXME:  The next line is because something pulls in 0.2.0.0, which
+                        -- doesn't allow something else to build due to Data.Streaming.BS.Builder.Class
+                        -- having been removed.  This line can be removed once we can update all
+                        -- the conduit stuff.
+                        streaming-commons < 0.2.0.0,
                         string-conversions >= 0.4.0 && < 0.5,
                         string-qq >= 0.0.2 && < 0.1.0,
                         temporary >= 1.2.0.4 && < 1.3.0.0,
