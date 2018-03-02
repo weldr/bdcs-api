@@ -28,7 +28,9 @@
 
 {-| API v0 routes
 -}
-module BDCS.API.V0(ComposeTypesResponse(..),
+module BDCS.API.V0(ComposeBody(..),
+               ComposeResponse(..),
+               ComposeTypesResponse(..),
                ModuleName(..),
                ModulesListResponse(..),
                PackageNEVRA(..),
