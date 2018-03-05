@@ -57,6 +57,7 @@ import           Network.Wai.Handler.Warp
 import           Network.Wai.Middleware.Cors
 import           Network.Wai.Middleware.Servant.Options
 import           Servant
+import           System.Directory(createDirectoryIfMissing)
 
 -- | The status of the server, the database, and the API.
 data ServerStatus = ServerStatus
@@ -141,6 +142,8 @@ mkApp bdcsPath gitRepoPath sqliteDbPath = do
                              cfgPool = pool,
                              cfgBdcs = bdcsPath,
                              cfgResultsDir = "/var/tmp/composer" }
+
+    createDirectoryIfMissing True (cfgResultsDir cfg)
 
     -- Fork off another process that does the composes in the background,
     -- which means the client immediately gets a response with a build ID.
