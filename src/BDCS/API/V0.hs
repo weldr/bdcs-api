@@ -29,7 +29,9 @@
 {-| API v0 routes
 -}
 module BDCS.API.V0(ComposeBody(..),
+               ComposeQueueResponse(..),
                ComposeResponse(..),
+               ComposeStatus(..),
                ComposeTypesResponse(..),
                ModuleName(..),
                ModulesListResponse(..),
@@ -52,7 +54,7 @@ module BDCS.API.V0(ComposeBody(..),
                v0ApiServer)
 where
 
-import           BDCS.API.Compose(ComposeInfo(..))
+import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..))
 import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
@@ -69,9 +71,13 @@ import           BDCS.Projects(findProject, getProject, projects)
 import           BDCS.RPM.Utils(splitFilename)
 import           BDCS.Utils.Monad(mapMaybeM)
 import qualified Control.Concurrent.ReadWriteLock as RWL
+import           Control.Concurrent.STM.TChan(writeTChan)
+import           Control.Concurrent.STM.TMVar(newEmptyTMVar, readTMVar)
 import qualified Control.Exception as CE
+import           Control.Monad.STM(atomically)
 import           Control.Monad.Except
 import           Data.Aeson
+import           Data.Either(rights)
 import           Data.IORef(atomicModifyIORef')
 import           Data.List(find, sortBy)
 import           Data.Maybe(fromMaybe, mapMaybe)
@@ -85,6 +91,8 @@ import qualified GI.Ggit as Git
 import           Servant
 import           System.Directory(createDirectoryIfMissing)
 import           System.FilePath.Posix((</>))
+import           System.Posix.Files(getFileStatus, modificationTime)
+import           System.Posix.Types(EpochTime)
 
 
 {-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
@@ -177,6 +185,7 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                         :> QueryParam "test" Int
                         :> Post '[JSON] ComposeResponse
         :<|> "compose"  :> "types" :> Get '[JSON] ComposeTypesResponse
+        :<|> "compose"  :> "queue" :> Get '[JSON] ComposeQueueResponse
 
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: ServerConfig -> Server V0API
@@ -200,6 +209,7 @@ v0ApiServer cfg = projectsListH
              :<|> modulesListFilteredH
              :<|> composeH
              :<|> composeTypesH
+             :<|> composeQueueH
   where
     projectsListH offset limit                       = projectsList cfg offset limit
     projectsInfoH project_names                      = projectsInfo cfg project_names
@@ -221,6 +231,7 @@ v0ApiServer cfg = projectsListH
     modulesListFilteredH module_names offset limit   = modulesList cfg offset limit (T.splitOn "," $ cs module_names)
     composeH body test                               = compose cfg body test
     composeTypesH                                    = composeTypes
+    composeQueueH                                    = composeQueue cfg
 
 -- | A test using ServantErr
 errTest :: Handler [T.Text]
@@ -1566,6 +1577,8 @@ compose cfg@ServerConfig{..} ComposeBody{..} test | cbType `notElem` supportedOu
         let resultsDir = cfgResultsDir </> show buildId
         liftIO $ createDirectoryIfMissing True resultsDir
 
+        liftIO $ TIO.writeFile (resultsDir </> "STATUS") "WAITING"
+
         -- Write out the original recipe.
         liftIO $ TIO.writeFile (resultsDir </> "recipe.toml") (recipeTOML recipe)
 
@@ -1655,3 +1668,90 @@ instance FromJSON ComposeTypesResponse where
 composeTypes :: Handler ComposeTypesResponse
 composeTypes =
     return $ ComposeTypesResponse $ map (ComposeType True) supportedOutputs
+
+
+data ComposeStatus = ComposeStatus {
+    csBuildId       :: T.Text,
+    csName          :: T.Text,
+    csQueueStatus   :: T.Text,
+    csTimestamp     :: EpochTime,
+    csVersion       :: T.Text
+} deriving (Show, Eq)
+
+instance ToJSON ComposeStatus where
+    toJSON ComposeStatus{..} = object [
+        "id"            .= csBuildId
+      , "recipe"        .= csName
+      , "queue_status"  .= csQueueStatus
+      , "timestamp"     .= csTimestamp
+      , "version"       .= csVersion ]
+
+instance FromJSON ComposeStatus where
+    parseJSON = withObject "compose type" $ \o ->
+        ComposeStatus <$> o .: "id"
+                      <*> o .: "recipe"
+                      <*> o .: "queue_status"
+                      <*> o .: "timestamp"
+                      <*> o .: "version"
+
+mkComposeStatus :: FilePath -> T.Text -> ExceptT String IO ComposeStatus
+mkComposeStatus baseDir buildId = do
+    let path = baseDir </> cs buildId
+
+    contents   <- tryIO   $ TIO.readFile (path </> "recipe.toml")
+    Recipe{..} <- ExceptT $ return $ parseRecipe contents
+    mtime      <- tryIO   $ modificationTime <$> getFileStatus (path </> "STATUS")
+    status     <- tryIO   $ TIO.readFile (path </> "STATUS")
+
+    return ComposeStatus { csBuildId = buildId,
+                           csName = cs rName,
+                           csQueueStatus = status,
+                           csTimestamp = mtime,
+                           csVersion = maybe "0.0.1" cs rVersion }
+ where
+     tryIO :: IO a -> ExceptT String IO a
+     tryIO fn = ExceptT $ liftIO $ CE.catch (Right <$> fn)
+                                            (\(e :: CE.IOException) -> return $ Left (show e))
+
+data ComposeQueueResponse = ComposeQueueResponse {
+    cqrNew :: [ComposeStatus],
+    cqrRun :: [ComposeStatus]
+} deriving (Show, Eq)
+
+instance ToJSON ComposeQueueResponse where
+  toJSON ComposeQueueResponse{..} = object [
+      "new" .= cqrNew
+    , "run" .= cqrRun ]
+
+instance FromJSON ComposeQueueResponse where
+  parseJSON = withObject "/compose/queue response" $ \o ->
+      ComposeQueueResponse <$> o .: "new"
+                           <*> o .: "run"
+
+composeQueue :: ServerConfig -> Handler ComposeQueueResponse
+composeQueue ServerConfig{..} = do
+    -- Construct a new message to ask what composes are currently waiting.
+    -- Each message includes an initially empty TMVar where the response
+    -- will be written.  This prevents needing to write a communications
+    -- protocol.  Making it initially empty is very important.
+    r <- liftIO $ atomically newEmptyTMVar
+    liftIO $ atomically $ writeTChan cfgChan (AskBuildsWaiting, r)
+
+    -- Wait for the response to show up in the TMVar we created.  This blocks,
+    -- but the server doesn't do much in its main thread so it shouldn't block
+    -- for long.
+    buildsWaiting <- liftIO (atomically $ readTMVar r) >>= \case
+        RespBuildsWaiting lst -> return lst
+        _                     -> return []
+
+    -- And then we do the same thing for builds currently running.
+    r' <- liftIO $ atomically newEmptyTMVar
+    liftIO $ atomically $ writeTChan cfgChan (AskBuildsInProgress, r')
+    buildsRunning <- liftIO (atomically $ readTMVar r') >>= \case
+        RespBuildsInProgress lst -> return lst
+        _                        -> return []
+
+    -- Finally we can create a response to send back to the client.
+    waitingCS <- rights <$> mapM (liftIO . runExceptT . mkComposeStatus cfgResultsDir) buildsWaiting
+    runningCS <- rights <$> mapM (liftIO . runExceptT . mkComposeStatus cfgResultsDir) buildsRunning
+    return $ ComposeQueueResponse waitingCS runningCS

@@ -50,6 +50,8 @@ data ComposeMsgResp = RespBuildsWaiting [T.Text]
 
 compose :: FilePath -> ConnectionPool -> ComposeInfo -> IO ()
 compose bdcs pool ComposeInfo{..} = do
+    TIO.writeFile (ciResultsDir </> "STATUS") "RUNNING"
+
     result <- runExceptT (runResourceT $ runSqlPool (export bdcs ciDest ciThings) pool)
     case result of
         Left _  -> TIO.writeFile (ciResultsDir </> "STATUS") "FAILED"

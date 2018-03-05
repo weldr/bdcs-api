@@ -140,7 +140,7 @@ mkApp bdcsPath gitRepoPath sqliteDbPath = do
                              cfgWorkQ = q,
                              cfgPool = pool,
                              cfgBdcs = bdcsPath,
-                             cfgResultsDir = "/var/lib/composer" }
+                             cfgResultsDir = "/var/tmp/composer" }
 
     -- Fork off another process that does the composes in the background,
     -- which means the client immediately gets a response with a build ID.

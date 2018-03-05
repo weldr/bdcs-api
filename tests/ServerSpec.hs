@@ -66,12 +66,13 @@ getModulesList :: Maybe Int -> Maybe Int -> ClientM ModulesListResponse
 getModulesList' :: String -> Maybe Int -> Maybe Int -> ClientM ModulesListResponse
 getCompose :: ComposeBody -> Maybe Int -> ClientM ComposeResponse
 getComposeTypes :: ClientM ComposeTypesResponse
+getComposeQueue :: ClientM ComposeQueueResponse
 getStatus :<|> getProjectsList :<|> getProjectsInfo :<|> getProjectsDepsolve :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
           :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo
           :<|> postRecipesWorkspace :<|> deleteRecipesWorkspace :<|> postRecipesTag :<|> getRecipesDiff
           :<|> getRecipesDepsolve :<|> getRecipesFreeze :<|> getModulesList
-          :<|> getModulesList' :<|> getCompose :<|> getComposeTypes = client proxyAPI
+          :<|> getModulesList' :<|> getCompose :<|> getComposeTypes :<|> getComposeQueue = client proxyAPI
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.
