@@ -54,7 +54,7 @@ module BDCS.API.V0(ComposeBody(..),
                v0ApiServer)
 where
 
-import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..))
+import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), ComposeStatus(..), mkComposeStatus)
 import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
@@ -1669,49 +1669,6 @@ composeTypes :: Handler ComposeTypesResponse
 composeTypes =
     return $ ComposeTypesResponse $ map (ComposeType True) supportedOutputs
 
-
-data ComposeStatus = ComposeStatus {
-    csBuildId       :: T.Text,
-    csName          :: T.Text,
-    csQueueStatus   :: T.Text,
-    csTimestamp     :: EpochTime,
-    csVersion       :: T.Text
-} deriving (Show, Eq)
-
-instance ToJSON ComposeStatus where
-    toJSON ComposeStatus{..} = object [
-        "id"            .= csBuildId
-      , "recipe"        .= csName
-      , "queue_status"  .= csQueueStatus
-      , "timestamp"     .= csTimestamp
-      , "version"       .= csVersion ]
-
-instance FromJSON ComposeStatus where
-    parseJSON = withObject "compose type" $ \o ->
-        ComposeStatus <$> o .: "id"
-                      <*> o .: "recipe"
-                      <*> o .: "queue_status"
-                      <*> o .: "timestamp"
-                      <*> o .: "version"
-
-mkComposeStatus :: FilePath -> T.Text -> ExceptT String IO ComposeStatus
-mkComposeStatus baseDir buildId = do
-    let path = baseDir </> cs buildId
-
-    contents   <- tryIO   $ TIO.readFile (path </> "recipe.toml")
-    Recipe{..} <- ExceptT $ return $ parseRecipe contents
-    mtime      <- tryIO   $ modificationTime <$> getFileStatus (path </> "STATUS")
-    status     <- tryIO   $ TIO.readFile (path </> "STATUS")
-
-    return ComposeStatus { csBuildId = buildId,
-                           csName = cs rName,
-                           csQueueStatus = status,
-                           csTimestamp = mtime,
-                           csVersion = maybe "0.0.1" cs rVersion }
- where
-     tryIO :: IO a -> ExceptT String IO a
-     tryIO fn = ExceptT $ liftIO $ CE.catch (Right <$> fn)
-                                            (\(e :: CE.IOException) -> return $ Left (show e))
 
 data ComposeQueueResponse = ComposeQueueResponse {
     cqrNew :: [ComposeStatus],
