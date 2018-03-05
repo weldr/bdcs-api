@@ -26,20 +26,25 @@ module BDCS.API.Compose(ComposeInfo(..),
                         ComposeMsgResp(..),
                         ComposeStatus(..),
                         compose,
+                        getComposesWithStatus,
                         mkComposeStatus)
   where
 
 import           BDCS.API.Recipe(Recipe(..), parseRecipe)
 import           BDCS.Export(export)
+import           Control.Conditional(ifM)
 import qualified Control.Exception as CE
+import           Control.Monad(filterM)
 import           Control.Monad.Except(ExceptT(..), runExceptT)
 import           Control.Monad.IO.Class(liftIO)
 import           Control.Monad.Trans.Resource(runResourceT)
 import           Data.Aeson((.:), (.=), FromJSON(..), ToJSON(..), object, withObject)
+import           Data.Either(rights)
 import           Data.String.Conversions(cs)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           Database.Persist.Sql(ConnectionPool, runSqlPool)
+import           System.Directory(doesFileExist, listDirectory)
 import           System.FilePath.Posix((</>))
 import           System.Posix.Files(getFileStatus, modificationTime)
 import           System.Posix.Types(EpochTime)
@@ -90,6 +95,26 @@ compose bdcs pool ComposeInfo{..} = do
     case result of
         Left _  -> TIO.writeFile (ciResultsDir </> "STATUS") "FAILED"
         Right _ -> TIO.writeFile (ciResultsDir </> "STATUS") "FINISHED"
+
+getComposesWithStatus :: FilePath -> T.Text -> IO [ComposeStatus]
+getComposesWithStatus resultsDir status = do
+    -- First, gather up all the subdirectories of resultsDir.  Each of these is a UUID for
+    -- some compose, wher that one has finished or is in progress or is in the queue.
+    contents <- listDirectory resultsDir
+    -- Next, filter that list down to just those that have a STATUS file containing the
+    -- sought after status.
+    uuids    <- filterM matches (map cs contents)
+    -- Finally, convert those into ComposeStatus records.
+    rights <$> mapM (runExceptT . mkComposeStatus resultsDir) uuids
+ where
+    matches :: T.Text -> IO Bool
+    matches uuid = do
+        let statusFile = resultsDir </> cs uuid </> "STATUS"
+        ifM (doesFileExist statusFile)
+            (do line <- CE.catch (TIO.readFile statusFile)
+                                 (\(_ :: CE.IOException) -> return "")
+                return $ line == status)
+            (return False)
 
 mkComposeStatus :: FilePath -> T.Text -> ExceptT String IO ComposeStatus
 mkComposeStatus baseDir buildId = do
