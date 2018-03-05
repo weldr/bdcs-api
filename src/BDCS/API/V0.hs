@@ -29,6 +29,8 @@
 {-| API v0 routes
 -}
 module BDCS.API.V0(ComposeBody(..),
+               ComposeFailedResponse(..),
+               ComposeFinishedResponse(..),
                ComposeQueueResponse(..),
                ComposeResponse(..),
                ComposeStatus(..),
@@ -54,7 +56,7 @@ module BDCS.API.V0(ComposeBody(..),
                v0ApiServer)
 where
 
-import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), ComposeStatus(..), mkComposeStatus)
+import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), ComposeStatus(..), getComposesWithStatus, mkComposeStatus)
 import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
@@ -91,8 +93,6 @@ import qualified GI.Ggit as Git
 import           Servant
 import           System.Directory(createDirectoryIfMissing)
 import           System.FilePath.Posix((</>))
-import           System.Posix.Files(getFileStatus, modificationTime)
-import           System.Posix.Types(EpochTime)
 
 
 {-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
@@ -186,6 +186,8 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                         :> Post '[JSON] ComposeResponse
         :<|> "compose"  :> "types" :> Get '[JSON] ComposeTypesResponse
         :<|> "compose"  :> "queue" :> Get '[JSON] ComposeQueueResponse
+        :<|> "compose"  :> "finished" :> Get '[JSON] ComposeFinishedResponse
+        :<|> "compose"  :> "failed" :> Get '[JSON] ComposeFailedResponse
 
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: ServerConfig -> Server V0API
@@ -210,6 +212,8 @@ v0ApiServer cfg = projectsListH
              :<|> composeH
              :<|> composeTypesH
              :<|> composeQueueH
+             :<|> composeFinishedH
+             :<|> composeFailedH
   where
     projectsListH offset limit                       = projectsList cfg offset limit
     projectsInfoH project_names                      = projectsInfo cfg project_names
@@ -232,6 +236,8 @@ v0ApiServer cfg = projectsListH
     composeH body test                               = compose cfg body test
     composeTypesH                                    = composeTypes
     composeQueueH                                    = composeQueue cfg
+    composeFinishedH                                 = composeQueueFinished cfg
+    composeFailedH                                   = composeQueueFailed cfg
 
 -- | A test using ServantErr
 errTest :: Handler [T.Text]
@@ -1712,3 +1718,39 @@ composeQueue ServerConfig{..} = do
     waitingCS <- rights <$> mapM (liftIO . runExceptT . mkComposeStatus cfgResultsDir) buildsWaiting
     runningCS <- rights <$> mapM (liftIO . runExceptT . mkComposeStatus cfgResultsDir) buildsRunning
     return $ ComposeQueueResponse waitingCS runningCS
+
+
+data ComposeFinishedResponse = ComposeFinishedResponse {
+    cfrFinished :: [ComposeStatus]
+} deriving (Show, Eq)
+
+instance ToJSON ComposeFinishedResponse where
+  toJSON ComposeFinishedResponse{..} = object [
+      "finished" .= cfrFinished ]
+
+instance FromJSON ComposeFinishedResponse where
+  parseJSON = withObject "/compose/queue/finished response" $ \o ->
+      ComposeFinishedResponse <$> o .: "finished"
+
+composeQueueFinished :: ServerConfig -> Handler ComposeFinishedResponse
+composeQueueFinished ServerConfig{..} = do
+    results <- liftIO $ getComposesWithStatus cfgResultsDir "FINISHED"
+    return $ ComposeFinishedResponse results
+
+
+data ComposeFailedResponse = ComposeFailedResponse {
+    cfrFailed :: [ComposeStatus]
+} deriving (Show, Eq)
+
+instance ToJSON ComposeFailedResponse where
+  toJSON ComposeFailedResponse{..} = object [
+      "failed" .= cfrFailed ]
+
+instance FromJSON ComposeFailedResponse where
+  parseJSON = withObject "/compose/queue/failed response" $ \o ->
+      ComposeFailedResponse <$> o .: "failed"
+
+composeQueueFailed :: ServerConfig -> Handler ComposeFailedResponse
+composeQueueFailed ServerConfig{..} = do
+    results <- liftIO $ getComposesWithStatus cfgResultsDir "FAILED"
+    return $ ComposeFailedResponse results
