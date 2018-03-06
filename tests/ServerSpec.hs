@@ -71,13 +71,14 @@ getComposeTypes :: ClientM ComposeTypesResponse
 getComposeQueue :: ClientM ComposeQueueResponse
 getComposeQueueFinished :: ClientM ComposeFinishedResponse
 getComposeQueueFailed :: ClientM ComposeFailedResponse
+getComposeStatus :: String -> ClientM ComposeStatusResponse
 getStatus :<|> getProjectsList :<|> getProjectsInfo :<|> getProjectsDepsolve :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
           :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo
           :<|> postRecipesWorkspace :<|> deleteRecipesWorkspace :<|> postRecipesTag :<|> getRecipesDiff
           :<|> getRecipesDepsolve :<|> getRecipesFreeze :<|> getModulesList
           :<|> getModulesList' :<|> getCompose :<|> getComposeTypes :<|> getComposeQueue
-          :<|> getComposeQueueFinished :<|> getComposeQueueFailed = client proxyAPI
+          :<|> getComposeQueueFinished :<|> getComposeQueueFailed :<|> getComposeStatus = client proxyAPI
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.

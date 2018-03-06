@@ -34,7 +34,7 @@ module BDCS.API.V0(BuildInfo(..),
                ComposeFinishedResponse(..),
                ComposeQueueResponse(..),
                ComposeResponse(..),
-               ComposeStatus(..),
+               ComposeStatusResponse(..),
                ComposeTypesResponse(..),
                Metadata(..),
                ModuleName(..),
@@ -110,6 +110,11 @@ import           System.FilePath.Posix((</>))
 
 defaultBranch :: Maybe String -> T.Text
 defaultBranch = maybe "master" cs
+
+-- Given a list of UUIDs, run mkComposeStatus on all of them and return only the results that
+-- did not have any errors (like, from file IO).
+filterMapComposeStatus :: MonadIO m => FilePath -> [T.Text] -> m [ComposeStatus]
+filterMapComposeStatus dir lst = rights <$> mapM (liftIO . runExceptT . mkComposeStatus dir) lst
 
 -- | RecipesAPIError is used to report errors with the /recipes/ routes
 --
@@ -198,6 +203,8 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
         :<|> "compose"  :> "queue" :> Get '[JSON] ComposeQueueResponse
         :<|> "compose"  :> "finished" :> Get '[JSON] ComposeFinishedResponse
         :<|> "compose"  :> "failed" :> Get '[JSON] ComposeFailedResponse
+        :<|> "compose"  :> "status" :> Capture "uuids" String
+                                    :> Get '[JSON] ComposeStatusResponse
 
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: ServerConfig -> Server V0API
@@ -224,6 +231,7 @@ v0ApiServer cfg = projectsListH
              :<|> composeQueueH
              :<|> composeFinishedH
              :<|> composeFailedH
+             :<|> composeStatusH
   where
     projectsListH offset limit                       = projectsList cfg offset limit
     projectsInfoH project_names                      = projectsInfo cfg project_names
@@ -248,6 +256,7 @@ v0ApiServer cfg = projectsListH
     composeQueueH                                    = composeQueue cfg
     composeFinishedH                                 = composeQueueFinished cfg
     composeFailedH                                   = composeQueueFailed cfg
+    composeStatusH uuids                             = composeStatus cfg (T.splitOn "," $ cs uuids)
 
 -- | A test using ServantErr
 errTest :: Handler [T.Text]
@@ -1896,8 +1905,8 @@ composeQueue ServerConfig{..} = do
         _                        -> return []
 
     -- Finally we can create a response to send back to the client.
-    waitingCS <- rights <$> mapM (liftIO . runExceptT . mkComposeStatus cfgResultsDir) buildsWaiting
-    runningCS <- rights <$> mapM (liftIO . runExceptT . mkComposeStatus cfgResultsDir) buildsRunning
+    waitingCS <- filterMapComposeStatus cfgResultsDir buildsWaiting
+    runningCS <- filterMapComposeStatus cfgResultsDir buildsRunning
     return $ ComposeQueueResponse waitingCS runningCS
 
 
@@ -1935,3 +1944,20 @@ composeQueueFailed :: ServerConfig -> Handler ComposeFailedResponse
 composeQueueFailed ServerConfig{..} = do
     results <- liftIO $ getComposesWithStatus cfgResultsDir "FAILED"
     return $ ComposeFailedResponse results
+
+
+data ComposeStatusResponse = ComposeStatusResponse {
+    csrUuids :: [ComposeStatus]
+} deriving (Show, Eq)
+
+instance ToJSON ComposeStatusResponse where
+  toJSON ComposeStatusResponse{..} = object [
+      "uuids" .= csrUuids ]
+
+instance FromJSON ComposeStatusResponse where
+  parseJSON = withObject "/compose/queue/status response" $ \o ->
+      ComposeStatusResponse <$> o .: "uuids"
+
+composeStatus :: ServerConfig -> [T.Text] -> Handler ComposeStatusResponse
+composeStatus ServerConfig{..} uuids =
+    ComposeStatusResponse <$> filterMapComposeStatus cfgResultsDir uuids
