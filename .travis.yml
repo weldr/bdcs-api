@@ -13,6 +13,13 @@ script:
 
 after_success:
   - make ci_after_success
+  - |
+        if [ "$TRAVIS_BRANCH" == "master" ] && [ "$TRAVIS_PULL_REQUEST" == "false" ]; then
+            sudo docker tag welder/bdcs-api-img:latest welder/bdcs-api-img:$TRAVIS_BUILD_NUMBER
+
+            docker login -u atodorov -p $DOCKER_PASSWORD
+            docker push welder/bdcs-api-img
+        fi
 
 notifications:
   email:

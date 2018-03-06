@@ -38,7 +38,7 @@ build-and-test: Dockerfile.build
 bdcs-api-img: build-and-test
 	sudo docker build -t welder/bdcs-api-img .
 
-ci: build-and-test
+ci: bdcs-api-img
 
 ci_after_success:
 	sudo docker run --rm --security-opt label=disable -v `pwd`:/bdcs-api/ \
