@@ -141,7 +141,7 @@ mkApp bdcsPath gitRepoPath sqliteDbPath = do
                              cfgWorkQ = q,
                              cfgPool = pool,
                              cfgBdcs = bdcsPath,
-                             cfgResultsDir = "/var/tmp/composer" }
+                             cfgResultsDir = "/var/lib/composer" }
 
     createDirectoryIfMissing True (cfgResultsDir cfg)
 
