@@ -44,16 +44,16 @@ import           Control.Concurrent(ThreadId, forkFinally, forkIO)
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Concurrent.STM.TChan(newTChan, tryReadTChan)
 import           Control.Concurrent.STM.TMVar(putTMVar)
-import           Control.Conditional(whenM)
-import           Control.Monad(forever, void)
+import           Control.Monad(forever, void, when)
 import           Control.Monad.Except(runExceptT)
 import           Control.Monad.Logger(runStderrLoggingT)
 import           Control.Monad.STM(atomically)
 import           Data.Aeson
 import           Data.Int(Int64)
-import           Data.IORef(IORef, atomicModifyIORef', atomicWriteIORef, newIORef, readIORef)
-import           Data.Maybe(isNothing)
+import           Data.IORef(IORef, atomicModifyIORef', newIORef, readIORef)
+import qualified Data.Map as Map
 import           Data.String.Conversions(cs)
+import qualified Data.Text as T
 import           Database.Persist.Sqlite
 import qualified GI.Ggit as Git
 import           Network.Wai
@@ -62,6 +62,8 @@ import           Network.Wai.Middleware.Cors
 import           Network.Wai.Middleware.Servant.Options
 import           Servant
 import           System.Directory(createDirectoryIfMissing)
+
+type InProgressMap = Map.Map T.Text (ThreadId, ComposeInfo)
 
 -- | The status of the server, the database, and the API.
 data ServerStatus = ServerStatus
@@ -174,11 +176,11 @@ runServer port bdcsPath gitRepoPath sqliteDbPath = run port =<< mkApp bdcsPath g
 
 composeServer :: ServerConfig -> IO ()
 composeServer ServerConfig{..} = do
-    -- A mutable variable to hold information about the currently running compose.
-    -- Since we just support one compose at a time, this will just store a tuple of
-    -- thread ID and ComposeInfo record.  If this is Nothing, no compose is currently
-    -- running.
-    cur <- newIORef Nothing
+    -- A mutable variable that lets us keep track about currently running composes.
+    -- This is a map from UUID of the compose underway to the ThreadId doing that
+    -- compose.  This lets us kill threads if needed.  If this is empty, no compose
+    -- is currently running.
+    inProgressRef <- newIORef Map.empty
 
     -- We run in a loop forever doing two tasks:
     --
@@ -187,19 +189,21 @@ composeServer ServerConfig{..} = do
     --
     -- (2) Firing off composes for requests in the queue.
     forever $ do
-        atomically (tryReadTChan cfgChan) >>= respondToMessage cur
+        atomically (tryReadTChan cfgChan) >>= respondToMessage inProgressRef
 
-        -- If the mutable variable is not Nothing, we are already running a compose.
-        -- Don't try to start another one.  This leaves the work queue alone so we
-        -- can grab the next item later.
-        whenM (isNothing <$> readIORef cur) $
+        -- For now, we only support running one compose at a time.  If the mutable
+        -- variable is not empty, we are already running a compose.  Don't try to start
+        -- another one.  This leaves the work queue alone so we can grab the next item
+        -- later.
+        inProgress <- readIORef inProgressRef
+        when (Map.null inProgress) $
             nextInQ cfgWorkQ >>= \case
                 -- Start another compose.  When the thread finishes (either because the
                 -- compose is done or because it failed), clear out the mutable variable.
                 Just ci -> do threadId <- forkFinally (compose cfgBdcs cfgPool ci)
-                                                      (\_ -> atomicWriteIORef cur Nothing)
+                                                      (\_ -> removeCompose inProgressRef (ciId ci))
 
-                              atomicWriteIORef cur (Just (threadId, ci))
+                              addCompose inProgressRef ci threadId
 
                 _ -> return ()
  where
@@ -208,14 +212,25 @@ composeServer ServerConfig{..} = do
     nextInQ q = atomicModifyIORef' q (\case (hd:tl) -> (tl, Just hd)
                                             _       -> ([], Nothing))
 
-    respondToMessage :: IORef (Maybe (ThreadId, ComposeInfo)) -> Maybe AskTuple -> IO ()
+    -- Add a newly started compose to the in progress map.
+    addCompose :: IORef InProgressMap -> ComposeInfo -> ThreadId -> IO ()
+    addCompose ref ci@ComposeInfo{..} threadId =
+        void $ atomicModifyIORef' ref (\m -> (Map.insert ciId (threadId, ci) m, ()))
+
+    -- Remove a completed (or killed?) compose from the in progress map.
+    removeCompose :: IORef InProgressMap -> T.Text -> IO ()
+    removeCompose ref uuid =
+        void $ atomicModifyIORef' ref (\m -> (Map.delete uuid m, ()))
+
+    respondToMessage :: IORef InProgressMap -> Maybe AskTuple -> IO ()
     respondToMessage _ (Just (AskBuildsWaiting, r)) = do
         q <- readIORef cfgWorkQ
         atomically $ putTMVar r (RespBuildsWaiting $ map ciId q)
 
-    respondToMessage cur (Just (AskBuildsInProgress, r)) =
-        readIORef cur >>= \case
-            Nothing                   -> atomically $ putTMVar r (RespBuildsInProgress [])
-            Just (_, ComposeInfo{..}) -> atomically $ putTMVar r (RespBuildsInProgress [ciId])
+    respondToMessage ref (Just (AskBuildsInProgress, r)) = do
+        -- Get just the ComposeInfo records for all the in-progress composes.
+        inProgress <- map snd . Map.elems <$> readIORef ref
+        -- And then extract the UUIDs of each, and that's the answer.
+        atomically $ putTMVar r (RespBuildsInProgress $ map ciId inProgress)
 
     respondToMessage _ _ = return ()
