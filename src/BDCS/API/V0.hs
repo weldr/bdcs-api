@@ -63,6 +63,7 @@ where
 import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), ComposeStatus(..), getComposesWithStatus, mkComposeStatus)
 import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Customization(processCustomization)
+import           BDCS.API.Depsolve
 import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
@@ -71,13 +72,10 @@ import           BDCS.API.Utils(GitLock(..), applyLimits, argify, caseInsensitiv
 import           BDCS.API.Workspace
 import           BDCS.DB
 import           BDCS.Builds(findBuilds, getBuild)
-import           BDCS.Depclose(depcloseNames)
-import           BDCS.Depsolve(formulaToCNF, solveCNF)
 import           BDCS.Export.Utils(supportedOutputs)
-import           BDCS.Groups(groupIdToNevra, groups)
+import           BDCS.Groups(groups)
 import           BDCS.Projects(findProject, getProject, projects)
 import           BDCS.Sources(findSources, getSource)
-import           BDCS.RPM.Utils(splitFilename)
 import           BDCS.Utils.Either(maybeToEither)
 import           BDCS.Utils.Monad(mapMaybeM)
 import qualified Control.Concurrent.ReadWriteLock as RWL
@@ -87,7 +85,8 @@ import qualified Control.Exception as CE
 import           Control.Monad.STM(atomically)
 import           Control.Monad.Except
 import           Data.Aeson
-import           Data.Either(rights)
+import           Data.Bifunctor(bimap)
+import           Data.Either(partitionEithers, rights)
 import           Data.IORef(atomicModifyIORef')
 import           Data.List(find, sortBy)
 import           Data.Maybe(fromMaybe, mapMaybe)
@@ -1128,38 +1127,40 @@ instance FromJSON RecipesDepsolveResponse where
 recipesDepsolve :: ServerConfig -> Maybe String -> String -> Handler RecipesDepsolveResponse
 recipesDepsolve ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
     let recipe_name_list = map T.pack (argify [recipe_names])
-    (recipes, errors) <- liftIO $ allRecipeDeps recipe_name_list [] []
+    (recipes, errors) <- liftIO $ allRecipeDeps recipe_name_list
     return $ RecipesDepsolveResponse recipes errors
   where
-    allRecipeDeps :: [T.Text] -> [RecipeDependencies] ->  [RecipesAPIError] -> IO ([RecipeDependencies], [RecipesAPIError])
-    allRecipeDeps [] _ _ = return ([], [])
-    allRecipeDeps [recipe_name] recipes_list errors_list =
-                  depsolveRecipe recipe_name recipes_list errors_list
-    allRecipeDeps (recipe_name:xs) recipes_list errors_list = do
-                  (new_recipes, new_errors) <- depsolveRecipe recipe_name recipes_list errors_list
-                  allRecipeDeps xs new_recipes new_errors
+    allRecipeDeps :: [T.Text] -> IO ([RecipeDependencies], [RecipesAPIError])
+    allRecipeDeps recipeNames = do
+        -- Convert the list of names into a list of Recipes.  Also collect a list of errors
+        -- that occurred while doing the conversion.  We don't simply stop on the first error.
+        results <- mapM (getOneRecipeInfo cfgRepoLock (defaultBranch mbranch)) recipeNames
+        let (errors, recipes) = partitionEithers results
 
-    depsolveRecipe :: T.Text -> [RecipeDependencies] ->  [RecipesAPIError] -> IO ([RecipeDependencies], [RecipesAPIError])
-    depsolveRecipe recipe_name recipes_list errors_list = getRecipeInfo cfgRepoLock (defaultBranch mbranch) recipe_name >>= \case
-        Left err          -> return (recipes_list, RecipesAPIError recipe_name (T.pack err):errors_list)
-        Right (_, recipe) -> do
-            -- Make a list of the packages and modules (a set) and sort it by lowercase names
-            let projects_name_list = map T.pack $ getAllRecipeProjects recipe
-            -- depsolve this list
-            depsolveProjects cfgPool projects_name_list >>= \case
-                Left err         -> return (recipes_list, RecipesAPIError recipe_name (T.pack err):errors_list)
-                Right dep_nevras -> do
-                    -- Make a list of the NEVRAs for the names in the step above (frozen list of packages)
-                    -- NOTE It may not include everything, if the dependency is satisfied by a project with
-                    --      a different name it will not be included in the list.
-                    let project_nevras = getProjectNEVRAs projects_name_list dep_nevras
-                    return (RecipeDependencies recipe dep_nevras project_nevras:recipes_list, errors_list)
+        -- Depsolve each recipe, also gathering up any errors from this process as well.  Because
+        -- depsolveRecipe lives elsewhere and therefore cannot return types defined in this file,
+        -- it returns more generic things lacking the recipe name.  Thus, here we must convert
+        -- both possibilities of the return type.
+        results' <- mapM (\r -> bimap (toRecipesAPIError r)
+                                      (toRecipeDependencies r)
+                                <$> depsolveRecipe cfgPool r)
+                         recipes
+        let (depErrors, deps) = partitionEithers results'
+        return (deps, errors ++ depErrors)
 
-    -- Get the NEVRAs for all the projects used to feed the depsolve step
-    getProjectNEVRAs :: [T.Text] -> [PackageNEVRA] -> [PackageNEVRA]
-    getProjectNEVRAs project_names all_nevras = mapMaybe lookupProject project_names
-      where
-        lookupProject project_name = find (\e -> pnName e == project_name) all_nevras
+    toRecipesAPIError :: Recipe -> T.Text -> RecipesAPIError
+    toRecipesAPIError Recipe{..} msg =
+        RecipesAPIError { raeRecipe=cs rName, raeMsg=msg }
+
+    toRecipeDependencies :: Recipe -> ([PackageNEVRA], [PackageNEVRA]) -> RecipeDependencies
+    toRecipeDependencies recipe (deps, mods) =
+        RecipeDependencies { rdRecipe=recipe, rdDependencies=deps, rdModules=mods }
+
+    getOneRecipeInfo :: GitLock -> T.Text -> T.Text -> IO (Either RecipesAPIError Recipe)
+    getOneRecipeInfo lock branch name =
+        getRecipeInfo lock branch name >>= \case
+            Left err     -> return $ Left RecipesAPIError { raeRecipe=name, raeMsg=cs err }
+            Right (_, r) -> return $ Right r
 
 
 -- | The JSON response for /blueprints/freeze/<blueprints>
@@ -1292,39 +1293,6 @@ recipesFreeze ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (git
       where
         epoch Nothing  = ""
         epoch (Just e) = T.pack (show e) `T.append` ":"
-
--- | Package build details
-data PackageNEVRA = PackageNEVRA {
-     pnName       :: T.Text
-   , pnEpoch      :: Maybe Int
-   , pnVersion    :: T.Text
-   , pnRelease    :: T.Text
-   , pnArch       :: T.Text
-} deriving (Show, Eq)
-
-instance ToJSON PackageNEVRA where
-  toJSON PackageNEVRA{..} = object [
-        "name"    .= pnName
-      , "epoch"   .= fromMaybe 0 pnEpoch
-      , "version" .= pnVersion
-      , "release" .= pnRelease
-      , "arch"    .= pnArch ]
-
-instance FromJSON PackageNEVRA where
-  parseJSON = withObject "package NEVRA" $ \o -> do
-      pnName    <- o .: "name"
-      pnEpoch   <- o .: "epoch"
-      pnVersion <- o .: "version"
-      pnRelease <- o .: "release"
-      pnArch    <- o .: "arch"
-      return PackageNEVRA{..}
-
--- Make a PackageNEVRA from a tuple of NEVRA info.
-mkPackageNEVRA :: (T.Text, Maybe T.Text, T.Text, T.Text, T.Text) -> PackageNEVRA
-mkPackageNEVRA (name, epoch, version, release, arch) = PackageNEVRA name (epoch' epoch) version release arch
-  where
-    epoch' Nothing = Nothing
-    epoch' (Just e) = Just ((read $ T.unpack e) :: Int)
 
 -- | The JSON response for /projects/list
 data ProjectsListResponse = ProjectsListResponse {
@@ -1621,19 +1589,6 @@ projectsDepsolve ServerConfig{..} project_names = do
             Left _             -> return $ ProjectsDepsolveResponse []
             Right project_deps -> return $ ProjectsDepsolveResponse project_deps
 
--- | Depsolve a list of project names, returning a list of PackageNEVRA
--- If there is an error it returns an empty list
-depsolveProjects :: ConnectionPool -> [T.Text] -> IO (Either String [PackageNEVRA])
-depsolveProjects pool project_name_list = do
-    result <- runExceptT $ flip runSqlPool pool $ do
-        -- XXX Need to properly deal with arches
-        formula <- depcloseNames ["x86_64"] project_name_list
-        solution <- solveCNF (formulaToCNF formula)
-        mapMaybeM groupIdToNevra $ map fst $ filter snd solution
-    case result of
-        Left  e           -> return $ Left (show e)
-        Right assignments -> return $ Right (map (mkPackageNEVRA . splitFilename) assignments)
-
 
 -- | Information about a module
 data ModuleName = ModuleName {
@@ -1767,39 +1722,31 @@ compose cfg@ServerConfig{..} ComposeBody{..} test | cbType `notElem` supportedOu
     withRecipe cfgRepoLock cbBranch cbName $ \recipe -> do
         buildId <- liftIO nextRandom
         let resultsDir = cfgResultsDir </> show buildId
-        liftIO $ createDirectoryIfMissing True resultsDir
-
-        liftIO $ TIO.writeFile (resultsDir </> "STATUS") "WAITING"
-
-        -- Write out the original recipe.
-        liftIO $ TIO.writeFile (resultsDir </> "blueprint.toml") (recipeTOML recipe)
+        liftIO $ do
+            createDirectoryIfMissing True resultsDir
+            TIO.writeFile (resultsDir </> "STATUS") "WAITING"
+            -- Write out the original recipe.
+            TIO.writeFile (resultsDir </> "blueprint.toml") (recipeTOML recipe)
 
         -- Freeze the recipe so we have precise versions of its components.  This could potentially
         -- return multiple frozen recipes, but I think only if we asked it to do multiple things.
         -- We did not, so we can safely assume there's only one result.
-        withFrozenRecipe cbBranch cbName $ \frozen -> do
-            liftIO $ TIO.writeFile (resultsDir </> "frozen.toml") (recipeTOML frozen)
+        withFrozenRecipe cbBranch cbName $ \frozen -> liftIO $ do
+            TIO.writeFile (resultsDir </> "frozen.toml") (recipeTOML frozen)
 
-            -- And then depsolve the thing so we know what packages to compose with.
-            withDependencies cbBranch cbName $ \deps -> do
-                let dest   = resultsDir </> "compose." ++ T.unpack cbType
-                    nevras = map pkgString (rdDependencies deps)
+            customActions <- processCustomization $ rCustomization frozen
 
-                customActions <- processCustomization $ rCustomization frozen
+            let dest = resultsDir </> "compose." ++ T.unpack cbType
+                ci   = ComposeInfo { ciDest=dest,
+                                     ciId=T.pack $ show buildId,
+                                     ciRecipe=recipe,
+                                     ciResultsDir=resultsDir,
+                                     ciCustom=customActions,
+                                     ciType=cbType }
 
-                let ci     = ComposeInfo { ciDest=dest,
-                                           ciId=T.pack $ show buildId,
-                                           ciResultsDir=resultsDir,
-                                           ciThings=nevras,
-                                           ciCustom=customActions,
-                                           ciType=cbType }
-
-                liftIO $ void $ atomicModifyIORef' cfgWorkQ (\ref -> (ref ++ [ci], ()))
-                return $ ComposeResponse True [T.pack $ show buildId] []
+            void $ atomicModifyIORef' cfgWorkQ (\ref -> (ref ++ [ci], ()))
+            return $ ComposeResponse True [T.pack $ show buildId] []
  where
-    pkgString :: PackageNEVRA -> T.Text
-    pkgString PackageNEVRA{..} = T.concat [pnName, "-", pnVersion, "-", pnRelease, ".", pnArch]
-
     withRecipe :: GitLock -> Maybe T.Text -> T.Text -> (Recipe -> Handler ComposeResponse) -> Handler ComposeResponse
     withRecipe lock branch name fn =
         liftIO (getRecipeInfo lock (defaultBranch $ fmap cs branch) name) >>= \case
@@ -1811,12 +1758,6 @@ compose cfg@ServerConfig{..} ComposeBody{..} test | cbType `notElem` supportedOu
         recipesFreeze cfg (fmap cs branch) (cs name) >>= \case
             RecipesFreezeResponse [] errs      -> return $ ComposeResponse False [] (map (T.pack . show) errs)
             RecipesFreezeResponse (frozen:_) _ -> fn frozen
-
-    withDependencies :: Maybe T.Text -> T.Text -> (RecipeDependencies -> Handler ComposeResponse) -> Handler ComposeResponse
-    withDependencies branch name fn =
-        recipesDepsolve cfg (fmap cs branch) (cs name) >>= \case
-            RecipesDepsolveResponse [] errs    -> return $ ComposeResponse False [] (map (T.pack . show) errs)
-            RecipesDepsolveResponse (deps:_) _ -> fn deps
 
 -- | The JSON response for /compose/types
 data ComposeType = ComposeType {

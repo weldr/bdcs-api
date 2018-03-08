@@ -15,6 +15,7 @@
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -30,6 +31,7 @@ module BDCS.API.Compose(ComposeInfo(..),
                         mkComposeStatus)
   where
 
+import           BDCS.API.Depsolve(PackageNEVRA(..), depsolveRecipe)
 import           BDCS.API.Recipe(Recipe(..), parseRecipe)
 import           BDCS.Export.Customize(Customization)
 import           BDCS.Export(exportAndCustomize)
@@ -52,8 +54,8 @@ import           System.FilePath.Posix((</>))
 data ComposeInfo = ComposeInfo
   {  ciDest       :: FilePath                                   -- ^ Path to the compose artifact
   ,  ciId         :: T.Text                                     -- ^ Build UUID
+  ,  ciRecipe     :: Recipe                                     -- ^ The recipe being built
   ,  ciResultsDir :: FilePath                                   -- ^ Directory containing the compose and other files
-  ,  ciThings     :: [T.Text]                                   -- ^ Items to go into the compose
   ,  ciCustom     :: [Customization]                            -- ^ Customizations to perform on the items in the compose
   ,  ciType       :: T.Text                                     -- ^ Build type (tar, etc.)
   } deriving (Eq, Show)
@@ -92,10 +94,15 @@ compose :: FilePath -> ConnectionPool -> ComposeInfo -> IO ()
 compose bdcs pool ComposeInfo{..} = do
     TIO.writeFile (ciResultsDir </> "STATUS") "RUNNING"
 
-    result <- runExceptT (runResourceT $ runSqlPool (exportAndCustomize bdcs ciDest ciThings ciCustom) pool)
-    case result of
-        Left _  -> TIO.writeFile (ciResultsDir </> "STATUS") "FAILED"
-        Right _ -> TIO.writeFile (ciResultsDir </> "STATUS") "FINISHED"
+    depsolveRecipe pool ciRecipe >>= \case
+        Left _            -> TIO.writeFile (ciResultsDir </> "STATUS") "FAILED"
+        Right (nevras, _) -> do let things = map pkgString nevras
+                                runExceptT (runResourceT $ runSqlPool (exportAndCustomize bdcs ciDest things ciCustom) pool) >>= \case
+                                    Left _  -> TIO.writeFile (ciResultsDir </> "STATUS") "FAILED"
+                                    Right _ -> TIO.writeFile (ciResultsDir </> "STATUS") "FINISHED"
+ where
+    pkgString :: PackageNEVRA -> T.Text
+    pkgString PackageNEVRA{..} = T.concat [pnName, "-", pnVersion, "-", pnRelease, ".", pnArch]
 
 getComposesWithStatus :: FilePath -> T.Text -> IO [ComposeStatus]
 getComposesWithStatus resultsDir status = do
