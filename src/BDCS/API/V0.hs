@@ -1237,34 +1237,42 @@ instance FromJSON RecipesFreezeResponse where
 recipesFreeze :: ServerConfig -> Maybe String -> String -> Handler RecipesFreezeResponse
 recipesFreeze ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
     let recipe_name_list = map T.pack (argify [recipe_names])
-    (recipes, errors) <- liftIO $ allRecipeDeps recipe_name_list [] []
+    (recipes, errors) <- liftIO $ allRecipeDeps recipe_name_list
     return $ RecipesFreezeResponse recipes errors
   where
-    allRecipeDeps :: [T.Text] -> [Recipe] ->  [RecipesAPIError] -> IO ([Recipe], [RecipesAPIError])
-    allRecipeDeps [] _ _ = return ([], [])
-    allRecipeDeps [recipe_name] recipes_list errors_list =
-                  depsolveRecipe recipe_name recipes_list errors_list
-    allRecipeDeps (recipe_name:xs) recipes_list errors_list = do
-                  (new_recipes, new_errors) <- depsolveRecipe recipe_name recipes_list errors_list
-                  allRecipeDeps xs new_recipes new_errors
+    allRecipeDeps :: [T.Text] -> IO ([Recipe], [RecipesAPIError])
+    allRecipeDeps recipeNames = do
+        -- Convert the list of names into a list of Recipes.  Also collect a list of errors
+        -- that occurred while doing the conversion.  We don't simply stop on the first error.
+        results <- mapM (getOneRecipeInfo cfgRepoLock (defaultBranch mbranch)) recipeNames
+        let (errors, recipes) = partitionEithers results
 
-    depsolveRecipe :: T.Text -> [Recipe] ->  [RecipesAPIError] -> IO ([Recipe], [RecipesAPIError])
-    depsolveRecipe recipe_name recipes_list errors_list = do
-        result <- getRecipeInfo cfgRepoLock (defaultBranch mbranch) recipe_name
-        case result of
-            Left err          -> return (recipes_list, RecipesAPIError recipe_name (T.pack err):errors_list)
-            Right (_, recipe) -> do
-                -- Make a list of the packages and modules (a set) and sort it by lowercase names
-                let projects_name_list = map T.pack $ getAllRecipeProjects recipe
-                -- depsolve this list
-                dep_result <- depsolveProjects cfgPool projects_name_list
-                case dep_result of
-                    Left err         -> return (recipes_list, RecipesAPIError recipe_name (T.pack err):errors_list)
-                    Right dep_nevras -> return (frozenRecipe recipe dep_nevras:recipes_list, errors_list)
+        -- Depsolve each recipe, also gathering up any errors from this process as well.  Because
+        -- depsolveRecipe lives elsewhere and therefore cannot return types defined in this file,
+        -- it returns more generic things lacking the recipe name.  Thus, here we must convert
+        -- both possibilities of the return type.
+        --
+        -- Additionally, here we must replace everything with the frozen version numbers.
+        results' <- mapM (\r -> bimap (toRecipesAPIError r)
+                                      (frozenRecipe r)
+                                <$> depsolveRecipe cfgPool r)
+                         recipes
+        let (depErrors, recipes') = partitionEithers results'
+        return (recipes', errors ++ depErrors)
+
+    toRecipesAPIError :: Recipe -> T.Text -> RecipesAPIError
+    toRecipesAPIError Recipe{..} msg =
+        RecipesAPIError { raeRecipe=cs rName, raeMsg=msg }
+
+    getOneRecipeInfo :: GitLock -> T.Text -> T.Text -> IO (Either RecipesAPIError Recipe)
+    getOneRecipeInfo lock branch name =
+        getRecipeInfo lock branch name >>= \case
+            Left err     -> return $ Left RecipesAPIError { raeRecipe=name, raeMsg=cs err }
+            Right (_, r) -> return $ Right r
 
     -- Replace the recipe's module and package versions with the EVR selected by depsolving
-    frozenRecipe :: Recipe -> [PackageNEVRA] -> Recipe
-    frozenRecipe recipe dep_nevras = do
+    frozenRecipe :: Recipe -> ([PackageNEVRA], [PackageNEVRA]) -> Recipe
+    frozenRecipe recipe (dep_nevras, _) = do
         let new_modules = getFrozenModules (rModules recipe) dep_nevras
         let new_packages= getFrozenModules (rPackages recipe) dep_nevras
         recipe { rModules = new_modules, rPackages = new_packages }
