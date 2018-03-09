@@ -82,7 +82,7 @@ import           Data.Aeson
 import           Data.Either(rights)
 import           Data.IORef(atomicModifyIORef')
 import           Data.List(find, sortBy)
-import           Data.Maybe(fromMaybe, mapMaybe)
+import           Data.Maybe(fromJust, fromMaybe, mapMaybe)
 import           Data.String.Conversions(cs)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -1031,14 +1031,14 @@ instance FromJSON RecipesDepsolveResponse where
 -- >             "dependencies": [
 -- >                 {
 -- >                     "arch": "x86_64",
--- >                     "epoch": "0",
+-- >                     "epoch": 0,
 -- >                     "name": "apr",
 -- >                     "release": "3.el7",
 -- >                     "version": "1.4.8"
 -- >                 },
 -- >                 {
 -- >                     "arch": "x86_64",
--- >                     "epoch": "0",
+-- >                     "epoch": 0,
 -- >                     "name": "apr-util",
 -- >                     "release": "6.el7",
 -- >                     "version": "1.5.2"
@@ -1048,14 +1048,14 @@ instance FromJSON RecipesDepsolveResponse where
 -- >             "modules": [
 -- >                 {
 -- >                     "arch": "x86_64",
--- >                     "epoch": "0",
+-- >                     "epoch": 0,
 -- >                     "name": "httpd",
 -- >                     "release": "67.el7",
 -- >                     "version": "2.4.6"
 -- >                 },
 -- >                 {
 -- >                     "arch": "x86_64",
--- >                     "epoch": "0",
+-- >                     "epoch": 0,
 -- >                     "name": "mod_auth_kerb",
 -- >                     "release": "28.el7",
 -- >                     "version": "5.4"
@@ -1271,14 +1271,13 @@ recipesFreeze ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (git
     getVersionFromNEVRA :: PackageNEVRA -> String
     getVersionFromNEVRA nevra = T.unpack $ T.concat [epoch $ pnEpoch nevra, pnVersion nevra, "-", pnRelease nevra]
       where
-        epoch (Just e) = e `T.append` ":"
         epoch Nothing  = ""
-
+        epoch (Just e) = (T.pack $ show e) T.append` ":"
 
 -- | Package build details
 data PackageNEVRA = PackageNEVRA {
      pnName       :: T.Text
-   , pnEpoch      :: Maybe T.Text
+   , pnEpoch      :: Maybe Int
    , pnVersion    :: T.Text
    , pnRelease    :: T.Text
    , pnArch       :: T.Text
@@ -1287,7 +1286,7 @@ data PackageNEVRA = PackageNEVRA {
 instance ToJSON PackageNEVRA where
   toJSON PackageNEVRA{..} = object [
         "name"    .= pnName
-      , "epoch"   .= fromMaybe "0" pnEpoch
+      , "epoch"   .= fromMaybe 0 pnEpoch
       , "version" .= pnVersion
       , "release" .= pnRelease
       , "arch"    .= pnArch ]
@@ -1303,8 +1302,10 @@ instance FromJSON PackageNEVRA where
 
 -- Make a PackageNEVRA from a tuple of NEVRA info.
 mkPackageNEVRA :: (T.Text, Maybe T.Text, T.Text, T.Text, T.Text) -> PackageNEVRA
-mkPackageNEVRA (name, epoch, version, release, arch) = PackageNEVRA name epoch version release arch
-
+mkPackageNEVRA (name, epoch, version, release, arch) = PackageNEVRA name (epoch' epoch) version release arch
+  where
+    epoch' Nothing = Nothing
+    epoch' (Just e) = Just ((read $ T.unpack e) :: Int)
 
 -- | The JSON response for /projects/list
 data ProjectsListResponse = ProjectsListResponse {

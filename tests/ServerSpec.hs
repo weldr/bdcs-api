@@ -156,12 +156,12 @@ recipesDepsolveResponse1 =
     RecipesDepsolveResponse [RecipeDependencies (Recipe "test-fake" (Just "0.0.1")  "A test recipe that uses the fake rpms"
                                                   [RecipeModule "bdcs-fake-lisa""1.0.*"]
                                                   [RecipeModule "bdcs-fake-bart" "1.3.*"])
-                                                [PackageNEVRA "bdcs-fake-bart" (Just "0") "1.3.1" "12" "x86_64",
-                                                 PackageNEVRA "bdcs-fake-homer" (Just "0") "2.0.1" "4" "x86_64",
-                                                 PackageNEVRA "bdcs-fake-lisa" (Just "3") "1.0.0" "1" "x86_64",
-                                                 PackageNEVRA "bdcs-fake-sax" (Just "0") "3.8.1" "1" "x86_64"]
-                                                [PackageNEVRA "bdcs-fake-bart" (Just "0") "1.3.1" "12" "x86_64",
-                                                 PackageNEVRA "bdcs-fake-lisa" (Just "3") "1.0.0" "1" "x86_64"]]
+                                                [PackageNEVRA "bdcs-fake-bart" (Just 0) "1.3.1" "12" "x86_64",
+                                                 PackageNEVRA "bdcs-fake-homer" (Just 0) "2.0.1" "4" "x86_64",
+                                                 PackageNEVRA "bdcs-fake-lisa" (Just 3) "1.0.0" "1" "x86_64",
+                                                 PackageNEVRA "bdcs-fake-sax" (Just 0) "3.8.1" "1" "x86_64"]
+                                                [PackageNEVRA "bdcs-fake-bart" (Just 0) "1.3.1" "12" "x86_64",
+                                                 PackageNEVRA "bdcs-fake-lisa" (Just 3) "1.0.0" "1" "x86_64"]]
                             []
 
 recipesDepsolveResponse2 :: RecipesDepsolveResponse
@@ -181,8 +181,8 @@ recipesFreezeResponse2 =
 
 projectsDepsolveResponse1 :: ProjectsDepsolveResponse
 projectsDepsolveResponse1 =
-    ProjectsDepsolveResponse [PackageNEVRA "bdcs-fake-lisa" (Just "3") "1.0.0" "1" "x86_64",
-                              PackageNEVRA "bdcs-fake-sax" (Just "0") "3.8.1" "1" "x86_64"]
+    ProjectsDepsolveResponse [PackageNEVRA "bdcs-fake-lisa" (Just 3) "1.0.0" "1" "x86_64",
+                              PackageNEVRA "bdcs-fake-sax" (Just 0) "3.8.1" "1" "x86_64"]
 
 projectsDepsolveResponse2 :: ProjectsDepsolveResponse
 projectsDepsolveResponse2 =
