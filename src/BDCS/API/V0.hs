@@ -1272,7 +1272,7 @@ recipesFreeze ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (git
     getVersionFromNEVRA nevra = T.unpack $ T.concat [epoch $ pnEpoch nevra, pnVersion nevra, "-", pnRelease nevra]
       where
         epoch Nothing  = ""
-        epoch (Just e) = (T.pack $ show e) `T.append` ":"
+        epoch (Just e) = T.pack (show e) `T.append` ":"
 
 -- | Package build details
 data PackageNEVRA = PackageNEVRA {
