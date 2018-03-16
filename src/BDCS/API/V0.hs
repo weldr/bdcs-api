@@ -62,6 +62,7 @@ where
 
 import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), ComposeStatus(..), getComposesWithStatus, mkComposeStatus)
 import           BDCS.API.Config(ServerConfig(..))
+import           BDCS.API.Customization(processCustomization)
 import           BDCS.API.Error(createApiError)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
@@ -1774,10 +1775,14 @@ compose cfg@ServerConfig{..} ComposeBody{..} test | cbType `notElem` supportedOu
             withDependencies cbBranch cbName $ \deps -> do
                 let dest   = resultsDir </> "compose." ++ T.unpack cbType
                     nevras = map pkgString (rdDependencies deps)
-                    ci     = ComposeInfo { ciDest=dest,
+
+                customActions <- processCustomization $ rCustomization frozen
+
+                let ci     = ComposeInfo { ciDest=dest,
                                            ciId=T.pack $ show buildId,
                                            ciResultsDir=resultsDir,
                                            ciThings=nevras,
+                                           ciCustom=customActions,
                                            ciType=cbType }
 
                 liftIO $ void $ atomicModifyIORef' cfgWorkQ (\ref -> (ref ++ [ci], ()))

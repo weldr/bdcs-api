@@ -19,6 +19,7 @@
 module RecipesSpec
   where
 
+import           BDCS.API.Customization(emptyCustomization)
 import           BDCS.API.Recipes(runGitRepoTests, runWorkspaceTests, recipeDiff,
                                   RecipeDiffType(..), RecipeDiffEntry(..))
 import           BDCS.API.Recipe(Recipe(..), RecipeModule(..))
@@ -38,7 +39,8 @@ testOldRecipe =
                         RecipeModule {rmName = "mod_auth_kerb", rmVersion = "5.4"},
                         RecipeModule {rmName = "mod_ssl", rmVersion = "2.4.*"},
                         RecipeModule {rmName = "php", rmVersion = "5.4.*"},
-                        RecipeModule {rmName = "php-mysql", rmVersion = "5.4.*"}]
+                        RecipeModule {rmName = "php-mysql", rmVersion = "5.4.*"}],
+            rCustomization = emptyCustomization
     }
 
 -- | Recipe to be used for diff test
@@ -54,7 +56,8 @@ testNewRecipe =
                         RecipeModule {rmName = "mod_auth_kerb", rmVersion = "5.5"},
                         RecipeModule {rmName = "mod_ssl", rmVersion = "2.4.*"},
                         RecipeModule {rmName = "php", rmVersion = "5.4.*"},
-                        RecipeModule {rmName = "perl", rmVersion = "6.0"}]
+                        RecipeModule {rmName = "perl", rmVersion = "6.0"}],
+            rCustomization = emptyCustomization
     }
 
 testDiffResults :: [RecipeDiffEntry]

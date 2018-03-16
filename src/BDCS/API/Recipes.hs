@@ -58,6 +58,7 @@ module BDCS.API.Recipes(openOrCreateRepo,
                         printOId)
   where
 
+import           BDCS.API.Customization
 import           BDCS.API.Recipe
 import           BDCS.API.Utils(caseInsensitive, maybeThrow)
 import           BDCS.API.Workspace
@@ -988,7 +989,8 @@ testRecipe =
                         RecipeModule {rmName = "mod_auth_kerb", rmVersion = "5.4"},
                         RecipeModule {rmName = "mod_ssl", rmVersion = "2.4.*"},
                         RecipeModule {rmName = "php", rmVersion = "5.4.*"},
-                        RecipeModule {rmName = "php-mysql", rmVersion = "5.4.*"}]
+                        RecipeModule {rmName = "php-mysql", rmVersion = "5.4.*"}],
+            rCustomization = emptyCustomization
     }
 
 testFiles :: [T.Text]

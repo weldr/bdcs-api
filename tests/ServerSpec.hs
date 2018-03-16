@@ -19,6 +19,7 @@
 module ServerSpec
   where
 
+import           BDCS.API.Customization(RecipeCustomization(..), RecipeSshKey(..), emptyCustomization)
 import           BDCS.API.Recipe(Recipe(..), RecipeModule(..))
 import           BDCS.API.Recipes(CommitDetails(..), RecipeDiffType(..), RecipeDiffEntry(..))
 import           BDCS.API.Server
@@ -101,6 +102,7 @@ httpserverRecipeResponse =
                            RecipeModule "mod_ssl" "2.4.*",
                            RecipeModule "php" "5.4.*",
                            RecipeModule "php-mysql" "5.4.*"]
+                          emptyCustomization
                         ]
                         []
 
@@ -111,7 +113,8 @@ multipleRecipeResponse =
                         [Recipe "glusterfs" (Just "0.0.1") "An example GlusterFS server with samba"
                           [RecipeModule "samba" "4.2.*"]
                           [RecipeModule "glusterfs" "3.7.*",
-                           RecipeModule "glusterfs-cli" "3.7.*"],
+                           RecipeModule "glusterfs-cli" "3.7.*"]
+                          emptyCustomization,
                          Recipe "http-server" (Just "0.2.0") "An example http server with PHP and MySQL support."
                           [RecipeModule "tmux" "2.2",
                            RecipeModule "openssh-server" "6.6.*",
@@ -121,6 +124,7 @@ multipleRecipeResponse =
                            RecipeModule "mod_ssl" "2.4.*",
                            RecipeModule "php" "5.4.*",
                            RecipeModule "php-mysql" "5.4.*"]
+                          emptyCustomization
                         ]
                         []
 
@@ -131,7 +135,8 @@ errorRecipeResponse =
                         [Recipe "glusterfs" (Just "0.0.1") "An example GlusterFS server with samba"
                           [RecipeModule "samba" "4.2.*"]
                           [RecipeModule "glusterfs" "3.7.*",
-                           RecipeModule "glusterfs-cli" "3.7.*"],
+                           RecipeModule "glusterfs-cli" "3.7.*"]
+                          emptyCustomization,
                          Recipe "http-server" (Just "0.2.0") "An example http server with PHP and MySQL support."
                           [RecipeModule "tmux" "2.2",
                            RecipeModule "openssh-server" "6.6.*",
@@ -141,6 +146,7 @@ errorRecipeResponse =
                            RecipeModule "mod_ssl" "2.4.*",
                            RecipeModule "php" "5.4.*",
                            RecipeModule "php-mysql" "5.4.*"]
+                          emptyCustomization
                         ]
                         [RecipesAPIError "missing-recipe" "missing-recipe.toml is not present on branch master"]
 
@@ -151,12 +157,17 @@ aTestRecipe :: Recipe
 aTestRecipe = Recipe "A Test Recipe" (Just "0.0.1") "A simple recipe to use for testing"
                      [RecipeModule "rsync" "3.0.*"]
                      [RecipeModule "httpd" "2.4.*"]
+                     emptyCustomization
+
+recipesCustomization1 :: RecipeCustomization
+recipesCustomization1 = RecipeCustomization (Just "ralph") [RecipeSshKey "maggie" "KEYDATA"]
 
 recipesDepsolveResponse1 :: RecipesDepsolveResponse
 recipesDepsolveResponse1 =
     RecipesDepsolveResponse [RecipeDependencies (Recipe "test-fake" (Just "0.0.1")  "A test recipe that uses the fake rpms"
                                                   [RecipeModule "bdcs-fake-lisa""1.0.*"]
-                                                  [RecipeModule "bdcs-fake-bart" "1.3.*"])
+                                                  [RecipeModule "bdcs-fake-bart" "1.3.*"]
+                                                  recipesCustomization1)
                                                 [PackageNEVRA "bdcs-fake-bart" (Just 0) "1.3.1" "12" "x86_64",
                                                  PackageNEVRA "bdcs-fake-homer" (Just 0) "2.0.1" "4" "x86_64",
                                                  PackageNEVRA "bdcs-fake-lisa" (Just 3) "1.0.0" "1" "x86_64",
@@ -173,7 +184,8 @@ recipesFreezeResponse1 :: RecipesFreezeResponse
 recipesFreezeResponse1 =
     RecipesFreezeResponse [Recipe "test-fake" (Just "0.0.1") "A test recipe that uses the fake rpms"
                             [RecipeModule "bdcs-fake-lisa" "3:1.0.0-1"]
-                            [RecipeModule "bdcs-fake-bart" "1.3.1-12"]]
+                            [RecipeModule "bdcs-fake-bart" "1.3.1-12"]
+                            recipesCustomization1]
                           []
 
 recipesFreezeResponse2 :: RecipesFreezeResponse

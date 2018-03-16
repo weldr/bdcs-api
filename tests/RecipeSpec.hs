@@ -20,6 +20,7 @@
 module RecipeSpec
   where
 
+import           BDCS.API.Customization
 import           BDCS.API.Recipe
 import           BDCS.API.TOMLMediaType
 import           Data.Aeson
@@ -84,7 +85,8 @@ test1Recipe =
                         RecipeModule {rmName = "mod_auth_kerb", rmVersion = "5.4"},
                         RecipeModule {rmName = "mod_ssl", rmVersion = "2.4.*"},
                         RecipeModule {rmName = "php", rmVersion = "5.4.*"},
-                        RecipeModule {rmName = "php-mysql", rmVersion = "5.4.*"}]
+                        RecipeModule {rmName = "php-mysql", rmVersion = "5.4.*"}],
+            rCustomization = emptyCustomization
     }
 
 -- JSON version of test1Recipe
@@ -100,7 +102,8 @@ test1JSON = [s|{
              {"name": "mod_auth_kerb", "version": "5.4"},
              {"name": "mod_ssl", "version": "2.4.*"},
              {"name": "php", "version": "5.4.*"},
-             {"name": "php-mysql", "version": "5.4.*"}]
+             {"name": "php-mysql", "version": "5.4.*"}],
+"customizations": {}
 }
 |]
 

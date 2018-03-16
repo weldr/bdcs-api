@@ -31,7 +31,8 @@ module BDCS.API.Compose(ComposeInfo(..),
   where
 
 import           BDCS.API.Recipe(Recipe(..), parseRecipe)
-import           BDCS.Export(export)
+import           BDCS.Export.Customize(Customization)
+import           BDCS.Export(exportAndCustomize)
 import           Control.Conditional(ifM)
 import qualified Control.Exception as CE
 import           Control.Monad(filterM)
@@ -53,6 +54,7 @@ data ComposeInfo = ComposeInfo
   ,  ciId         :: T.Text                                     -- ^ Build UUID
   ,  ciResultsDir :: FilePath                                   -- ^ Directory containing the compose and other files
   ,  ciThings     :: [T.Text]                                   -- ^ Items to go into the compose
+  ,  ciCustom     :: [Customization]                            -- ^ Customizations to perform on the items in the compose
   ,  ciType       :: T.Text                                     -- ^ Build type (tar, etc.)
   } deriving (Eq, Show)
 
@@ -90,7 +92,7 @@ compose :: FilePath -> ConnectionPool -> ComposeInfo -> IO ()
 compose bdcs pool ComposeInfo{..} = do
     TIO.writeFile (ciResultsDir </> "STATUS") "RUNNING"
 
-    result <- runExceptT (runResourceT $ runSqlPool (export bdcs ciDest ciThings) pool)
+    result <- runExceptT (runResourceT $ runSqlPool (exportAndCustomize bdcs ciDest ciThings ciCustom) pool)
     case result of
         Left _  -> TIO.writeFile (ciResultsDir </> "STATUS") "FAILED"
         Right _ -> TIO.writeFile (ciResultsDir </> "STATUS") "FINISHED"

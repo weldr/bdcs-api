@@ -9,3 +9,10 @@ version = "1.3.*"
 [[packages]]
 name = "bdcs-fake-lisa"
 version = "1.0.*"
+
+[customizations]
+hostname = "ralph"
+
+[[customizations.sshkey]]
+user = "maggie"
+key  = "KEYDATA"

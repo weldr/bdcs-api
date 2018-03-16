@@ -31,6 +31,7 @@ module BDCS.API.Recipe(bumpVersion,
                        RecipeModule(..))
   where
 
+import           BDCS.API.Customization(RecipeCustomization(..), RecipeSshKey(..), emptyCustomization)
 import           BDCS.API.TOMLMediaType
 import           BDCS.API.Utils(caseInsensitive)
 import           Data.Aeson
@@ -55,6 +56,7 @@ data Recipe =
            , rDescription       :: String               -- ^ Human readable description of the Recipe
            , rPackages          :: [RecipeModule]       -- ^ List of Packages in the Recipe
            , rModules           :: [RecipeModule]       -- ^ List of Modules in the Recipe
+           , rCustomization     :: RecipeCustomization  -- ^ Post-export customization block
     } deriving (Eq, Show)
 
 instance FromJSON Recipe where
@@ -64,6 +66,7 @@ instance FromJSON Recipe where
       rDescription <- o .:  "description"
       rPackages    <- o .:? "packages" .!= []
       rModules     <- o .:? "modules" .!= []
+      rCustomization <- o .:? "customizations" .!= emptyCustomization
       return Recipe{..}
 
 instance ToJSON Recipe where
@@ -72,7 +75,8 @@ instance ToJSON Recipe where
       , "version"     .= fromMaybe "" rVersion
       , "description" .= rDescription
       , "packages"    .= rPackages
-      , "modules"    .= rModules ]
+      , "modules"     .= rModules
+      , "customizations" .= rCustomization ]
 
 instance ToTOML Recipe where
     toTOML recipe = cs $ recipeTOML recipe
@@ -98,7 +102,6 @@ instance ToJSON RecipeModule where
         "name"    .= rmName
       , "version" .= rmVersion ]
 
-
 -- | Parse a TOML formatted recipe string and return a Recipe
 --
 -- If there is an error the details will be returned in the Left
@@ -114,7 +117,7 @@ parseRecipe xs =
 
 -- | Convert a Recipe to a TOML string
 recipeTOML :: Recipe -> T.Text
-recipeTOML Recipe{..} = T.concat [nameText, versionText, descriptionText, modulesText, packagesText]
+recipeTOML Recipe{..} = T.concat [nameText, versionText, descriptionText, modulesText, packagesText, customText]
   where
     nameText = T.pack $ printf "name = \"%s\"\n" rName
     versionText = T.pack $ printf "version = \"%s\"\n" $ fromMaybe "" rVersion
@@ -124,6 +127,13 @@ recipeTOML Recipe{..} = T.concat [nameText, versionText, descriptionText, module
     moduleText name RecipeModule{..} = T.pack $ printf "[[%s]]\nname = \"%s\"\nversion = \"%s\"\n\n" name rmName rmVersion
     packagesText = T.concat $ map (moduleText "packages") rPackages
     modulesText = T.concat $ map (moduleText "modules") rModules
+
+    customText = T.concat [hostnameText, sshKeysText]
+    hostnameText = maybe "" (T.pack . printf "[customizations]\nhostname = \"%s\"\n\n") $ rcHostName rCustomization
+    sshKeysText = T.concat $ map sshKeyText $ rcSshKeys rCustomization
+
+    sshKeyText :: RecipeSshKey -> T.Text
+    sshKeyText RecipeSshKey{..} = T.pack $ printf "[[customizations.sshkey]]\nuser = \"%s\"\nkey = \"%s\"\n\n" rcSshUser rcSshKey
 
 -- | Convert a recipe name to a toml filename
 --
