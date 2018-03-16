@@ -30,6 +30,7 @@
 -}
 module BDCS.API.V0(BuildInfo(..),
                ComposeBody(..),
+               ComposeDeleteResponse(..),
                ComposeFailedResponse(..),
                ComposeFinishedResponse(..),
                ComposeQueueResponse(..),
@@ -60,7 +61,7 @@ module BDCS.API.V0(BuildInfo(..),
                v0ApiServer)
 where
 
-import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), ComposeStatus(..), getComposesWithStatus, mkComposeStatus)
+import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), ComposeStatus(..), UuidError(..), UuidStatus(..), deleteCompose, getComposesWithStatus, mkComposeStatus)
 import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Customization(processCustomization)
 import           BDCS.API.Depsolve
@@ -204,6 +205,8 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
         :<|> "compose"  :> "failed" :> Get '[JSON] ComposeFailedResponse
         :<|> "compose"  :> "status" :> Capture "uuids" String
                                     :> Get '[JSON] ComposeStatusResponse
+        :<|> "compose"  :> "delete" :> Capture "uuids" String
+                                    :> Delete '[JSON] ComposeDeleteResponse
 
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: ServerConfig -> Server V0API
@@ -231,6 +234,7 @@ v0ApiServer cfg = projectsListH
              :<|> composeFinishedH
              :<|> composeFailedH
              :<|> composeStatusH
+             :<|> composeDeleteH
   where
     projectsListH offset limit                       = projectsList cfg offset limit
     projectsInfoH project_names                      = projectsInfo cfg project_names
@@ -256,6 +260,7 @@ v0ApiServer cfg = projectsListH
     composeFinishedH                                 = composeQueueFinished cfg
     composeFailedH                                   = composeQueueFailed cfg
     composeStatusH uuids                             = composeStatus cfg (T.splitOn "," $ cs uuids)
+    composeDeleteH uuids                             = composeDelete cfg (T.splitOn "," $ cs uuids)
 
 -- | A test using ServantErr
 errTest :: Handler [T.Text]
@@ -1910,3 +1915,25 @@ instance FromJSON ComposeStatusResponse where
 composeStatus :: ServerConfig -> [T.Text] -> Handler ComposeStatusResponse
 composeStatus ServerConfig{..} uuids =
     ComposeStatusResponse <$> filterMapComposeStatus cfgResultsDir uuids
+
+
+data ComposeDeleteResponse = ComposeDeleteResponse {
+    cdrErrors :: [UuidError],
+    cdrUuids :: [UuidStatus]
+} deriving (Show, Eq)
+
+instance ToJSON ComposeDeleteResponse where
+    toJSON ComposeDeleteResponse{..} = object [
+        "errors" .= cdrErrors,
+        "uuids"  .= cdrUuids ]
+
+instance FromJSON ComposeDeleteResponse where
+    parseJSON = withObject "/compose/delete response" $ \o ->
+        ComposeDeleteResponse <$> o .: "cdrErrors"
+                              <*> o .: "cdrUuids"
+
+composeDelete :: ServerConfig -> [T.Text] -> Handler ComposeDeleteResponse
+composeDelete ServerConfig{..} uuids = do
+    results <- liftIO $ mapM (deleteCompose cfgResultsDir) uuids
+    let (errors, successes) = partitionEithers results
+    return ComposeDeleteResponse { cdrErrors=errors, cdrUuids=successes }

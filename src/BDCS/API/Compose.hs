@@ -26,7 +26,10 @@ module BDCS.API.Compose(ComposeInfo(..),
                         ComposeMsgAsk(..),
                         ComposeMsgResp(..),
                         ComposeStatus(..),
+                        UuidError(..),
+                        UuidStatus(..),
                         compose,
+                        deleteCompose,
                         getComposesWithStatus,
                         mkComposeStatus)
   where
@@ -48,7 +51,7 @@ import           Data.String.Conversions(cs)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           Database.Persist.Sql(ConnectionPool, runSqlPool)
-import           System.Directory(doesFileExist, getModificationTime, listDirectory)
+import           System.Directory(doesFileExist, getModificationTime, listDirectory, removePathForcibly)
 import           System.FilePath.Posix((</>))
 
 data ComposeInfo = ComposeInfo
@@ -84,6 +87,36 @@ instance FromJSON ComposeStatus where
                       <*> o .: "timestamp"
                       <*> o .: "version"
 
+data UuidError = UuidError {
+    ueError :: T.Text,
+    ueUuid :: T.Text
+} deriving (Show, Eq)
+
+instance ToJSON UuidError where
+    toJSON UuidError{..} = object [
+        "error" .= ueError,
+        "uuid"  .= ueUuid ]
+
+instance FromJSON UuidError where
+    parseJSON = withObject "UUID error type" $ \o ->
+        UuidError <$> o .: "error"
+                  <*> o .: "uuid"
+
+data UuidStatus = UuidStatus {
+    usStatus :: Bool,
+    usUuid :: T.Text
+} deriving (Show, Eq)
+
+instance ToJSON UuidStatus where
+    toJSON UuidStatus{..} = object [
+        "status" .= usStatus,
+        "uuid"   .= usUuid ]
+
+instance FromJSON UuidStatus where
+    parseJSON = withObject "UUID type" $ \o ->
+        UuidStatus <$> o .: "status"
+                   <*> o .: "uuid"
+
 data ComposeMsgAsk = AskBuildsWaiting
                    | AskBuildsInProgress
 
@@ -103,6 +136,19 @@ compose bdcs pool ComposeInfo{..} = do
  where
     pkgString :: PackageNEVRA -> T.Text
     pkgString PackageNEVRA{..} = T.concat [pnName, "-", pnVersion, "-", pnRelease, ".", pnArch]
+
+deleteCompose :: FilePath -> T.Text -> IO (Either UuidError UuidStatus)
+deleteCompose dir uuid =
+    liftIO (runExceptT $ mkComposeStatus dir uuid) >>= \case
+        Left _                  -> return $ Left UuidError { ueError="Not a valid build uuid", ueUuid=uuid }
+        Right ComposeStatus{..} ->
+            if csQueueStatus `notElem` ["FINISHED", "FAILED"]
+            then return $ Left UuidError { ueError="Build not in FINISHED or FAILED", ueUuid=uuid }
+            else do
+                let path = dir </> cs uuid
+                CE.catch (do removePathForcibly path
+                             return $ Right UuidStatus { usStatus=True, usUuid=uuid })
+                         (\(e :: CE.IOException) -> return $ Left UuidError { ueError=cs $ show e, ueUuid=uuid })
 
 getComposesWithStatus :: FilePath -> T.Text -> IO [ComposeStatus]
 getComposesWithStatus resultsDir status = do
