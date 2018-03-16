@@ -1835,6 +1835,38 @@ instance FromJSON ComposeQueueResponse where
       ComposeQueueResponse <$> o .: "new"
                            <*> o .: "run"
 
+-- | /api/v0/compose/queue
+--
+-- Return the status of the build queue. It includes information about the builds waiting,
+-- and the build that is running.
+-- 
+-- > {
+-- >   "new": [
+-- >     {
+-- >       "id": "45502a6d-06e8-48a5-a215-2b4174b3614b",
+-- >       "recipe": "glusterfs",
+-- >       "queue_status": "WAITING",
+-- >       "timestamp": 1517362647.4570868,
+-- >       "version": "0.0.6"
+-- >     },
+-- >     {
+-- >       "id": "6d292bd0-bec7-4825-8d7d-41ef9c3e4b73",
+-- >       "recipe": "kubernetes",
+-- >       "queue_status": "WAITING",
+-- >       "timestamp": 1517362659.0034983,
+-- >       "version": "0.0.1"
+-- >     }
+-- >   ],
+-- >   "run": [
+-- >     {
+-- >       "id": "745712b2-96db-44c0-8014-fe925c35e795",
+-- >       "recipe": "glusterfs",
+-- >       "queue_status": "RUNNING",
+-- >       "timestamp": 1517362633.7965999,
+-- >       "version": "0.0.6"
+-- >     }
+-- >   ]
+-- > }
 composeQueue :: ServerConfig -> Handler ComposeQueueResponse
 composeQueue ServerConfig{..} = do
     -- Construct a new message to ask what composes are currently waiting.
@@ -1876,6 +1908,28 @@ instance FromJSON ComposeFinishedResponse where
   parseJSON = withObject "/compose/queue/finished response" $ \o ->
       ComposeFinishedResponse <$> o .: "finished"
 
+-- | /api/v0/compose/finished
+--
+-- Return the details on all of the finished composes on the system.
+--
+-- > {
+-- >   "finished": [
+-- >     {
+-- >       "id": "70b84195-9817-4b8a-af92-45e380f39894",
+-- >       "recipe": "glusterfs",
+-- >       "queue_status": "FINISHED",
+-- >       "timestamp": 1517351003.8210032,
+-- >       "version": "0.0.6"
+-- >     },
+-- >     {
+-- >       "id": "e695affd-397f-4af9-9022-add2636e7459",
+-- >       "recipe": "glusterfs",
+-- >       "queue_status": "FINISHED",
+-- >       "timestamp": 1517362289.7193348,
+-- >       "version": "0.0.6"
+-- >     }
+-- >   ]
+-- > }
 composeQueueFinished :: ServerConfig -> Handler ComposeFinishedResponse
 composeQueueFinished ServerConfig{..} = do
     results <- liftIO $ getComposesWithStatus cfgResultsDir "FINISHED"
@@ -1894,6 +1948,21 @@ instance FromJSON ComposeFailedResponse where
   parseJSON = withObject "/compose/queue/failed response" $ \o ->
       ComposeFailedResponse <$> o .: "failed"
 
+-- | /api/v0/compose/failed
+--
+-- Return the details on all of the failed composes on the system.
+--
+-- > {
+-- >   "failed": [
+-- >     {
+-- >       "id": "8c8435ef-d6bd-4c68-9bf1-a2ef832e6b1a",
+-- >       "recipe": "http-server",
+-- >       "queue_status": "FAILED",
+-- >       "timestamp": 1517523249.9301329,
+-- >       "version": "0.0.2"
+-- >     }
+-- >   ]
+-- > }
 composeQueueFailed :: ServerConfig -> Handler ComposeFailedResponse
 composeQueueFailed ServerConfig{..} = do
     results <- liftIO $ getComposesWithStatus cfgResultsDir "FAILED"
@@ -1912,6 +1981,28 @@ instance FromJSON ComposeStatusResponse where
   parseJSON = withObject "/compose/queue/status response" $ \o ->
       ComposeStatusResponse <$> o .: "uuids"
 
+-- | /api/v0/compose/status/<uuids>
+--
+-- Return the details for each of the comma-separated list of uuids.
+--
+-- > {
+-- >   "uuids": [
+-- >     {
+-- >       "id": "8c8435ef-d6bd-4c68-9bf1-a2ef832e6b1a",
+-- >       "recipe": "http-server",
+-- >       "queue_status": "FINISHED",
+-- >       "timestamp": 1517523644.2384307,
+-- >       "version": "0.0.2"
+-- >     },
+-- >     {
+-- >       "id": "45502a6d-06e8-48a5-a215-2b4174b3614b",
+-- >       "recipe": "glusterfs",
+-- >       "queue_status": "FINISHED",
+-- >       "timestamp": 1517363442.188399,
+-- >       "version": "0.0.6"
+-- >     }
+-- >   ]
+-- > }
 composeStatus :: ServerConfig -> [T.Text] -> Handler ComposeStatusResponse
 composeStatus ServerConfig{..} uuids =
     ComposeStatusResponse <$> filterMapComposeStatus cfgResultsDir uuids
@@ -1932,6 +2023,19 @@ instance FromJSON ComposeDeleteResponse where
         ComposeDeleteResponse <$> o .: "cdrErrors"
                               <*> o .: "cdrUuids"
 
+-- | DELETE /api/v0/compose/delete/<uuids>
+--
+-- Delete the list of comma-separated uuids from the compose results.
+--
+-- > {
+-- >   "errors": [],
+-- >   "uuids": [
+-- >     {
+-- >       "status": true,
+-- >       "uuid": "ae1bf7e3-7f16-4c9f-b36e-3726a1093fd0"
+-- >     }
+-- >   ]
+-- > }
 composeDelete :: ServerConfig -> [T.Text] -> Handler ComposeDeleteResponse
 composeDelete ServerConfig{..} uuids = do
     results <- liftIO $ mapM (deleteCompose cfgResultsDir) uuids
