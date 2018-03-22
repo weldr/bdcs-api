@@ -29,6 +29,7 @@ import           Control.Exception(throwIO)
 import           Control.Monad.Loops(allM)
 import           Data.List(isSuffixOf)
 import qualified Data.Text as T
+import           Data.Time.Clock(UTCTime)
 import           Network.HTTP.Client (Manager, newManager, defaultManagerSettings)
 import           Network.Wai (Application)
 import           Network.Wai.Handler.Warp
@@ -206,11 +207,64 @@ projectsListResponse3 = ProjectsListResponse [ Projects "bdcs-fake-lisa" "Dummy 
                                             2 20 4
 
 projectsInfoResponse1 :: ProjectsInfoResponse
-projectsInfoResponse1 = ProjectsInfoResponse [Projects "bdcs-fake-bart" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS"]
+projectsInfoResponse1 = ProjectsInfoResponse [
+    ProjectInfo { piBuilds = [BuildInfo { biArch = "x86_64",
+                                          biConfigRef = "BUILD_CONFIG_REF",
+                                          biEnvRef = "BUILD_ENV_REF",
+                                          biBuildTime = read "2018-01-10 18:29:25 UTC" :: UTCTime,
+                                          biChangelog = "- Initial version",
+                                          biEpoch = Nothing,
+                                          biMetadata = [],
+                                          biRelease = "12",
+                                          biSource = SourceInfo { siLicense = "GPL",
+                                                                  siMetadata = [],
+                                                                  siSourceRef = "SOURCE_REF",
+                                                                  siVersion = "1.3.1" }
+                                        }],
+                  piDescription = "This is a dummy description.",
+                  piHomepage = Nothing,
+                  piName = "bdcs-fake-bart",
+                  piSummary = "Dummy summary",
+                  piUpstream = "UPSTREAM_VCS" } ]
 
 projectsInfoResponse2 :: ProjectsInfoResponse
-projectsInfoResponse2 = ProjectsInfoResponse [Projects "bdcs-fake-bart" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
-                                              Projects "bdcs-fake-sax" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS"]
+projectsInfoResponse2 = ProjectsInfoResponse [
+    ProjectInfo { piBuilds = [BuildInfo { biArch = "x86_64",
+                                          biConfigRef = "BUILD_CONFIG_REF",
+                                          biEnvRef = "BUILD_ENV_REF",
+                                          biBuildTime = read "2018-01-10 18:29:25 UTC" :: UTCTime,
+                                          biChangelog = "- Initial version",
+                                          biEpoch = Nothing,
+                                          biMetadata = [],
+                                          biRelease = "12",
+                                          biSource = SourceInfo { siLicense = "GPL",
+                                                                  siMetadata = [],
+                                                                  siSourceRef = "SOURCE_REF",
+                                                                  siVersion = "1.3.1" }
+                                        }],
+                  piDescription = "This is a dummy description.",
+                  piHomepage = Nothing,
+                  piName = "bdcs-fake-bart",
+                  piSummary = "Dummy summary",
+                  piUpstream = "UPSTREAM_VCS" },
+    ProjectInfo { piBuilds = [BuildInfo { biArch = "x86_64",
+                                          biConfigRef = "BUILD_CONFIG_REF",
+                                          biEnvRef = "BUILD_ENV_REF",
+                                          biBuildTime = read "2018-01-10 18:29:25 UTC" :: UTCTime,
+                                          biChangelog = "- Initial version",
+                                          biEpoch = Nothing,
+                                          biMetadata = [],
+                                          biRelease = "1",
+                                          biSource = SourceInfo { siLicense = "GPL",
+                                                                  siMetadata = [],
+                                                                  siSourceRef = "SOURCE_REF",
+                                                                  siVersion = "3.8.1" }
+                                        }],
+                  piDescription = "This is a dummy description.",
+                  piHomepage = Nothing,
+                  piName = "bdcs-fake-sax",
+                  piSummary = "Dummy summary",
+                  piUpstream = "UPSTREAM_VCS" } ]
 
 -- Post 10 changes to the test recipe
 postMultipleChanges :: ClientM Bool

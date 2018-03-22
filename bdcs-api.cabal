@@ -107,6 +107,7 @@ test-suite spec
                         string-qq >= 0.0.2 && < 0.1.0,
                         temporary >= 1.2.0.4 && < 1.3.0.0,
                         text >= 1.2.2.0 && < 1.3,
+                        time,
                         wai >= 3.2.1 && < 3.3,
                         warp >= 3.2.11 && < 3.3
   default-language:     Haskell2010
