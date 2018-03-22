@@ -39,15 +39,14 @@ import           Control.Monad.Except(ExceptT(..), runExceptT)
 import           Control.Monad.IO.Class(liftIO)
 import           Control.Monad.Trans.Resource(runResourceT)
 import           Data.Aeson((.:), (.=), FromJSON(..), ToJSON(..), object, withObject)
+import           Data.Time.Clock(UTCTime)
 import           Data.Either(rights)
 import           Data.String.Conversions(cs)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           Database.Persist.Sql(ConnectionPool, runSqlPool)
-import           System.Directory(doesFileExist, listDirectory)
+import           System.Directory(doesFileExist, getModificationTime, listDirectory)
 import           System.FilePath.Posix((</>))
-import           System.Posix.Files(getFileStatus, modificationTime)
-import           System.Posix.Types(EpochTime)
 
 data ComposeInfo = ComposeInfo
   {  ciDest       :: FilePath                                   -- ^ Path to the compose artifact
@@ -61,7 +60,7 @@ data ComposeStatus = ComposeStatus {
     csBuildId       :: T.Text,
     csName          :: T.Text,
     csQueueStatus   :: T.Text,
-    csTimestamp     :: EpochTime,
+    csTimestamp     :: UTCTime,
     csVersion       :: T.Text
 } deriving (Show, Eq)
 
@@ -122,7 +121,7 @@ mkComposeStatus baseDir buildId = do
 
     contents   <- tryIO   $ TIO.readFile (path </> "recipe.toml")
     Recipe{..} <- ExceptT $ return $ parseRecipe contents
-    mtime      <- tryIO   $ modificationTime <$> getFileStatus (path </> "STATUS")
+    mtime      <- tryIO   $ getModificationTime (path </> "STATUS")
     status     <- tryIO   $ TIO.readFile (path </> "STATUS")
 
     return ComposeStatus { csBuildId = buildId,
