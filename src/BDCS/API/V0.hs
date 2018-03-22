@@ -28,16 +28,19 @@
 
 {-| API v0 routes
 -}
-module BDCS.API.V0(ComposeBody(..),
+module BDCS.API.V0(BuildInfo(..),
+               ComposeBody(..),
                ComposeFailedResponse(..),
                ComposeFinishedResponse(..),
                ComposeQueueResponse(..),
                ComposeResponse(..),
                ComposeStatus(..),
                ComposeTypesResponse(..),
+               Metadata(..),
                ModuleName(..),
                ModulesListResponse(..),
                PackageNEVRA(..),
+               ProjectInfo(..),
                ProjectsDepsolveResponse(..),
                ProjectsInfoResponse(..),
                ProjectsListResponse(..),
@@ -51,6 +54,7 @@ module BDCS.API.V0(ComposeBody(..),
                RecipesAPIError(..),
                RecipeChanges(..),
                RecipeDependencies(..),
+               SourceInfo(..),
                WorkspaceChanges(..),
                V0API,
                v0ApiServer)
@@ -65,12 +69,15 @@ import           BDCS.API.TOMLMediaType
 import           BDCS.API.Utils(GitLock(..), applyLimits, argify, caseInsensitive)
 import           BDCS.API.Workspace
 import           BDCS.DB
+import           BDCS.Builds(findBuilds, getBuild)
 import           BDCS.Depclose(depcloseNames)
 import           BDCS.Depsolve(formulaToCNF, solveCNF)
 import           BDCS.Export.Utils(supportedOutputs)
 import           BDCS.Groups(groupIdToNevra, groups)
 import           BDCS.Projects(findProject, getProject, projects)
+import           BDCS.Sources(findSources, getSource)
 import           BDCS.RPM.Utils(splitFilename)
+import           BDCS.Utils.Either(maybeToEither)
 import           BDCS.Utils.Monad(mapMaybeM)
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Concurrent.STM.TChan(writeTChan)
@@ -82,10 +89,12 @@ import           Data.Aeson
 import           Data.Either(rights)
 import           Data.IORef(atomicModifyIORef')
 import           Data.List(find, sortBy)
-import           Data.Maybe(fromJust, fromMaybe, mapMaybe)
+import           Data.Maybe(fromMaybe, mapMaybe)
+import           Data.String(IsString)
 import           Data.String.Conversions(cs)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import           Data.Time.Clock(UTCTime)
 import           Database.Persist.Sql
 import           Data.GI.Base(GError(..))
 import           Data.UUID.V4(nextRandom)
@@ -1368,18 +1377,116 @@ projectsList ServerConfig{..} moffset mlimit = do
 
 
 -- | The JSON response for /projects/info
+data Metadata = Metadata {
+    mdKey :: T.Text,
+    mdVal :: T.Text
+} deriving (Show, Eq)
+
+instance ToJSON Metadata where
+    toJSON Metadata{..} = object [
+        "key" .= mdKey,
+        "val" .= mdVal ]
+
+instance FromJSON Metadata where
+    parseJSON = withObject "/projects/info metadata" $ \o ->
+        Metadata <$> o .: "key"
+                 <*> o .: "val"
+
+data SourceInfo = SourceInfo {
+    siLicense :: T.Text,
+    siMetadata :: [Metadata],
+    siSourceRef :: T.Text,
+    siVersion :: T.Text
+} deriving (Show, Eq)
+
+instance ToJSON SourceInfo where
+    toJSON SourceInfo{..} = object [
+        "license"    .= siLicense,
+        "metadata"   .= siMetadata,
+        "source_ref" .= siSourceRef,
+        "version"    .= siVersion ]
+
+instance FromJSON SourceInfo where
+    parseJSON = withObject "/projects/info source info" $ \o ->
+        SourceInfo <$> o .: "license"
+                   <*> o .: "metadata"
+                   <*> o .: "source_ref"
+                   <*> o .: "version"
+
+data BuildInfo = BuildInfo {
+    biArch :: T.Text,
+    biConfigRef :: T.Text,
+    biEnvRef :: T.Text,
+    biBuildTime :: UTCTime,
+    biChangelog :: T.Text,
+    biEpoch :: Maybe Int,
+    biMetadata :: [Metadata],
+    biRelease :: T.Text,
+    biSource :: SourceInfo
+} deriving (Show, Eq)
+
+instance ToJSON BuildInfo where
+    toJSON BuildInfo{..} = object [
+        "arch"             .= biArch,
+        "build_config_ref" .= biConfigRef,
+        "build_env_ref"    .= biEnvRef,
+        "build_time"       .= biBuildTime,
+        "changelog"        .= biChangelog,
+        "epoch"            .= biEpoch,
+        "metadata"         .= biMetadata,
+        "release"          .= biRelease,
+        "source"           .= biSource ]
+
+instance FromJSON BuildInfo where
+    parseJSON = withObject "/projects/info build info" $ \o ->
+        BuildInfo <$> o .: "arch"
+                  <*> o .: "build_config_ref"
+                  <*> o .: "build_env_ref"
+                  <*> o .: "build_time"
+                  <*> o .: "changelog"
+                  <*> o .: "epoch"
+                  <*> o .: "metadata"
+                  <*> o .: "release"
+                  <*> o .: "source"
+
+data ProjectInfo = ProjectInfo {
+    piBuilds  :: [BuildInfo],
+    piDescription :: T.Text,
+    piHomepage :: Maybe T.Text,
+    piName :: T.Text,
+    piSummary :: T.Text,
+    piUpstream :: T.Text
+} deriving (Show, Eq)
+
+instance ToJSON ProjectInfo where
+    toJSON ProjectInfo{..} = object [
+        "builds"       .= piBuilds,
+        "description"  .= piDescription,
+        "homepage"     .= piHomepage,
+        "name"         .= piName,
+        "summary"      .= piSummary,
+        "upstream_vcs" .= piUpstream ]
+
+instance FromJSON ProjectInfo where
+    parseJSON = withObject "/projects/info project info" $ \o ->
+        ProjectInfo <$> o .: "builds"
+                    <*> o .: "description"
+                    <*> o .: "homepage"
+                    <*> o .: "name"
+                    <*> o .: "summary"
+                    <*> o .: "upstream_vcs"
+
 data ProjectsInfoResponse = ProjectsInfoResponse {
-    pipProjects :: [Projects]                                   -- ^ List of recipe names
+    pipProjects :: [ProjectInfo]
 } deriving (Show, Eq)
 
 instance ToJSON ProjectsInfoResponse where
-  toJSON ProjectsInfoResponse{..} = object [
-      "projects" .= pipProjects ]
+    toJSON ProjectsInfoResponse{..} = object [
+        "projects" .= pipProjects ]
 
 instance FromJSON ProjectsInfoResponse where
-  parseJSON = withObject "/projects/info response" $ \o -> do
-    pipProjects <- o .: "projects"
-    return ProjectsInfoResponse{..}
+  parseJSON = withObject "/projects/info response" $ \o ->
+      ProjectsInfoResponse <$> o .: "projects"
 
 -- | /api/v0/projects/info/<projects>
 -- Return information about the comma-separated list of projects
@@ -1387,31 +1494,99 @@ instance FromJSON ProjectsInfoResponse where
 -- # Example
 --
 -- > {
--- >     "projects": [
+-- >   "projects": [
+-- >     {
+-- >       "builds": [
 -- >         {
--- >             "description": "The GNU tar program saves many files ...",
--- >             "homepage": "http://www.gnu.org/software/tar/",
--- >             "name": "tar",
--- >             "summary": "A GNU file archiving program",
--- >             "upstream_vcs": "UPSTREAM_VCS"
+-- >           "arch": "x86_64",
+-- >           "build_config_ref": "BUILD_CONFIG_REF",
+-- >           "build_env_ref": "BUILD_ENV_REF",
+-- >           "build_time": "2017-03-01T08:39:23",
+-- >           "changelog": "- restore incremental backups correctly, files ...",
+-- >           "epoch": "2",
+-- >           "metadata": {},
+-- >           "release": "32.el7",
+-- >           "source": {
+-- >             "license": "GPLv3+",
+-- >             "metadata": {},
+-- >             "source_ref": "SOURCE_REF",
+-- >             "version": "1.26"
+-- >           }
 -- >         }
--- >     ]
+-- >       ],
+-- >       "description": "The GNU tar program saves many files ...",
+-- >       "homepage": "http://www.gnu.org/software/tar/",
+-- >       "name": "tar",
+-- >       "summary": "A GNU file archiving program",
+-- >       "upstream_vcs": "UPSTREAM_VCS"
+-- >     }
+-- >   ]
 -- > }
 -- >
 projectsInfo :: ServerConfig -> String -> Handler ProjectsInfoResponse
 projectsInfo ServerConfig{..} project_names = do
     let project_name_list = map T.pack $ sortBy caseInsensitive $ argify [project_names]
-    projects_info <- liftIO $ mapMaybeM getProjectInfo project_name_list
-    return $ ProjectsInfoResponse projects_info
+    results <- liftIO $ mapM (runExceptT . getProjectInfo) project_name_list
+    return $ ProjectsInfoResponse (rights results)
   where
-    getProjectInfo :: T.Text -> IO (Maybe Projects)
+    getProjectInfo :: IsString e => T.Text -> ExceptT e IO ProjectInfo
     getProjectInfo project_name = do
-        result <- runExceptT $ flip runSqlPool cfgPool $ findProject project_name >>= \case
-            Nothing      -> return Nothing
-            Just proj_id -> getProject proj_id
-        case result of
-            Left _             -> return Nothing
-            Right project_info -> return project_info
+        (projKey, proj) <- fetchProjects project_name
+        sources         <- fetchSources projKey
+        tuples          <- mapM combineSourceAndBuilds sources
+
+        let nfos = concatMap (\(src, blds) -> map (mkBuildInfo src) blds) tuples
+
+        return ProjectInfo { piBuilds=nfos,
+                             piDescription=projectsDescription proj,
+                             piHomepage=projectsHomepage proj,
+                             piName=projectsName proj,
+                             piSummary=projectsSummary proj,
+                             piUpstream=projectsUpstream_vcs proj }
+     where
+        combineSourceAndBuilds :: (Key Sources, Sources) -> ExceptT e IO (Sources, [Builds])
+        combineSourceAndBuilds (key, src) = do
+            builds <- fetchBuilds key
+            return (src, builds)
+
+    mkBuildInfo :: Sources -> Builds -> BuildInfo
+    mkBuildInfo src Builds{..} =
+        BuildInfo { biArch=buildsArch,
+                    biConfigRef=buildsBuild_config_ref,
+                    biEnvRef=buildsBuild_env_ref,
+                    biBuildTime=buildsBuild_time,
+                    biChangelog=cs buildsChangelog,
+                    biEpoch=if buildsEpoch == 0 then Nothing else Just buildsEpoch,
+                    biMetadata=[],
+                    biRelease=buildsRelease,
+                    biSource=mkSourceInfo src }
+
+    mkSourceInfo :: Sources -> SourceInfo
+    mkSourceInfo Sources{..} =
+        SourceInfo { siLicense=sourcesLicense,
+                     siMetadata=[],
+                     siSourceRef=sourcesSource_ref,
+                     siVersion=sourcesVersion }
+
+    fetchProjects :: IsString e => T.Text -> ExceptT e IO (Key Projects, Projects)
+    fetchProjects project_name = flip runSqlPool cfgPool $ do
+        key  <- findProject project_name >>= maybeToEither "no project record with given name"
+        proj <- getProject key >>= maybeToEither "no project record with given name"
+        return (key, proj)
+
+    fetchSources :: Key Projects -> ExceptT e IO [(Key Sources, Sources)]
+    fetchSources projectId = flip runSqlPool cfgPool $ do
+        keys    <- findSources projectId
+        sources <- mapM getSource keys
+        return $ mapMaybe removeEmptySource (zip keys sources)
+     where
+        removeEmptySource :: (Key Sources, Maybe Sources) -> Maybe (Key Sources, Sources)
+        removeEmptySource (_, Nothing)    = Nothing
+        removeEmptySource (key, Just src) = Just (key, src)
+
+    fetchBuilds :: Key Sources -> ExceptT e IO [Builds]
+    fetchBuilds sourceId = flip runSqlPool cfgPool $
+        findBuilds sourceId >>= mapMaybeM getBuild
 
 -- | The JSON response for /projects/depsolve/<projects>
 data ProjectsDepsolveResponse = ProjectsDepsolveResponse {
