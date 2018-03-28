@@ -78,7 +78,7 @@ cliOptions =
     ]
 
 cliHeader :: String
-cliHeader = "Usage: bdcs-api-server [OPTIONS...] <METADATA-DB> <RECIPE-REPO>"
+cliHeader = "Usage: bdcs-api-server [OPTIONS...] <METADATA-DB> <BLUEPRINT-REPO>"
 
 parseOpts :: [String] -> IO CliOptions
 parseOpts argv =

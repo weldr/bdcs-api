@@ -69,7 +69,7 @@ data ComposeStatus = ComposeStatus {
 instance ToJSON ComposeStatus where
     toJSON ComposeStatus{..} = object [
         "id"            .= csBuildId
-      , "recipe"        .= csName
+      , "blueprint"     .= csName
       , "queue_status"  .= csQueueStatus
       , "timestamp"     .= csTimestamp
       , "version"       .= csVersion ]
@@ -77,7 +77,7 @@ instance ToJSON ComposeStatus where
 instance FromJSON ComposeStatus where
     parseJSON = withObject "compose type" $ \o ->
         ComposeStatus <$> o .: "id"
-                      <*> o .: "recipe"
+                      <*> o .: "blueprint"
                       <*> o .: "queue_status"
                       <*> o .: "timestamp"
                       <*> o .: "version"
@@ -121,7 +121,7 @@ mkComposeStatus :: FilePath -> T.Text -> ExceptT String IO ComposeStatus
 mkComposeStatus baseDir buildId = do
     let path = baseDir </> cs buildId
 
-    contents   <- tryIO   $ TIO.readFile (path </> "recipe.toml")
+    contents   <- tryIO   $ TIO.readFile (path </> "blueprint.toml")
     Recipe{..} <- ExceptT $ return $ parseRecipe contents
     mtime      <- tryIO   $ getModificationTime (path </> "STATUS")
     status     <- tryIO   $ TIO.readFile (path </> "STATUS")

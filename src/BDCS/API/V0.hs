@@ -142,48 +142,48 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
         :<|> "projects" :> "info"     :> Capture "project_names" String :> Get '[JSON] ProjectsInfoResponse
         :<|> "projects" :> "depsolve" :> Capture "project_names" String :> Get '[JSON] ProjectsDepsolveResponse
         :<|> "errtest"  :> Get '[JSON] [T.Text]
-        :<|> "recipes"  :> "list" :> QueryParam "offset" Int
-                                  :> QueryParam "limit" Int
-                                  :> QueryParam "branch" String
-                                  :> Get '[JSON] RecipesListResponse
-        :<|> "recipes"  :> "info" :> Capture "recipes" String
-                                  :> QueryParam "branch" String
-                                  :> Get '[JSON] RecipesInfoResponse
-        :<|> "recipes"  :> "changes" :> Capture "recipes" String
-                                     :> QueryParam "offset" Int
+        :<|> "blueprints"  :> "list" :> QueryParam "offset" Int
                                      :> QueryParam "limit" Int
                                      :> QueryParam "branch" String
-                                     :> Get '[JSON] RecipesChangesResponse
-        :<|> "recipes"  :> "new" :> ReqBody '[JSON, TOML] Recipe
-                                 :> QueryParam "branch" String
-                                 :> Post '[JSON] RecipesStatusResponse
-        :<|> "recipes"  :> "delete" :> Capture "recipe" String
+                                     :> Get '[JSON] RecipesListResponse
+        :<|> "blueprints"  :> "info" :> Capture "recipes" String
+                                     :> QueryParam "branch" String
+                                     :> Get '[JSON] RecipesInfoResponse
+        :<|> "blueprints"  :> "changes" :> Capture "recipes" String
+                                        :> QueryParam "offset" Int
+                                        :> QueryParam "limit" Int
+                                        :> QueryParam "branch" String
+                                        :> Get '[JSON] RecipesChangesResponse
+        :<|> "blueprints"  :> "new" :> ReqBody '[JSON, TOML] Recipe
                                     :> QueryParam "branch" String
-                                    :> Delete '[JSON] RecipesStatusResponse
-        :<|> "recipes"  :> "undo" :> Capture "recipe" String
-                                  :> Capture "commit" String
-                                  :> QueryParam "branch" String
-                                  :> Post '[JSON] RecipesStatusResponse
-        :<|> "recipes"  :> "workspace" :> ReqBody '[JSON, TOML] Recipe
-                                       :> QueryParam "branch" String
-                                       :> Post '[JSON] RecipesStatusResponse
-        :<|> "recipes"  :> "workspace" :> Capture "recipe" String
+                                    :> Post '[JSON] RecipesStatusResponse
+        :<|> "blueprints"  :> "delete" :> Capture "recipe" String
                                        :> QueryParam "branch" String
                                        :> Delete '[JSON] RecipesStatusResponse
-        :<|> "recipes"  :> "tag" :> Capture "recipe" String
-                                 :> QueryParam "branch" String
-                                 :> Post '[JSON] RecipesStatusResponse
-        :<|> "recipes"  :> "diff" :> Capture "recipe" String
-                                  :> Capture "from_commit" String
-                                  :> Capture "to_commit" String
-                                  :> QueryParam "branch" String
-                                  :> Get '[JSON] RecipesDiffResponse
-        :<|> "recipes"  :> "depsolve" :> Capture "recipes" String
-                                      :> QueryParam "branch" String
-                                      :> Get '[JSON] RecipesDepsolveResponse
-        :<|> "recipes"  :> "freeze" :> Capture "recipes" String
+        :<|> "blueprints"  :> "undo" :> Capture "recipe" String
+                                     :> Capture "commit" String
+                                     :> QueryParam "branch" String
+                                     :> Post '[JSON] RecipesStatusResponse
+        :<|> "blueprints"  :> "workspace" :> ReqBody '[JSON, TOML] Recipe
+                                          :> QueryParam "branch" String
+                                          :> Post '[JSON] RecipesStatusResponse
+        :<|> "blueprints"  :> "workspace" :> Capture "recipe" String
+                                          :> QueryParam "branch" String
+                                          :> Delete '[JSON] RecipesStatusResponse
+        :<|> "blueprints"  :> "tag" :> Capture "recipe" String
                                     :> QueryParam "branch" String
-                                    :> Get '[JSON] RecipesFreezeResponse
+                                    :> Post '[JSON] RecipesStatusResponse
+        :<|> "blueprints"  :> "diff" :> Capture "recipe" String
+                                     :> Capture "from_commit" String
+                                     :> Capture "to_commit" String
+                                     :> QueryParam "branch" String
+                                     :> Get '[JSON] RecipesDiffResponse
+        :<|> "blueprints"  :> "depsolve" :> Capture "recipes" String
+                                         :> QueryParam "branch" String
+                                         :> Get '[JSON] RecipesDepsolveResponse
+        :<|> "blueprints"  :> "freeze" :> Capture "recipes" String
+                                       :> QueryParam "branch" String
+                                       :> Get '[JSON] RecipesFreezeResponse
         :<|> "modules"  :> "list" :> QueryParam "offset" Int
                                   :> QueryParam "limit" Int
                                   :> Get '[JSON] ModulesListResponse
@@ -256,37 +256,37 @@ errTest = throwError myError
     myError :: ServantErr
     myError = createApiError err503 "test_api_error" "This is a test of an API Error Response"
 
--- | The JSON response for /recipes/list
+-- | The JSON response for /blueprints/list
 data RecipesListResponse = RecipesListResponse {
-    rlrRecipes  :: [T.Text],                                    -- ^ List of recipe names
+    rlrRecipes  :: [T.Text],                                    -- ^ List of blueprint names
     rlrOffset   :: Int,                                         -- ^ Pagination offset into results
     rlrLimit    :: Int,                                         -- ^ Pagination limit of results
-    rlrTotal    :: Int                                          -- ^ Total number of recipe names
+    rlrTotal    :: Int                                          -- ^ Total number of blueprint names
 } deriving (Show, Eq)
 
 instance ToJSON RecipesListResponse where
   toJSON RecipesListResponse{..} = object [
-      "recipes" .= rlrRecipes
+      "blueprints" .= rlrRecipes
     , "offset"  .= rlrOffset
     , "limit"   .= rlrLimit
     , "total"   .= rlrTotal ]
 
 instance FromJSON RecipesListResponse where
-  parseJSON = withObject "/recipes/list response" $ \o -> do
-    rlrRecipes <- o .: "recipes"
+  parseJSON = withObject "/blueprints/list response" $ \o -> do
+    rlrRecipes <- o .: "blueprints"
     rlrOffset  <- o .: "offset"
     rlrLimit   <- o .: "limit"
     rlrTotal   <- o .: "total"
     return RecipesListResponse{..}
 
--- | /api/v0/recipes/list
--- List the names of the available recipes
+-- | /api/v0/blueprints/list
+-- List the names of the available blueprints
 --
 -- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
 -- [@mbranch@]: The branch name
 --
 -- >  {
--- >      "recipes": [
+-- >      "blueprints": [
 -- >          "development",
 -- >          "glusterfs",
 -- >          "http-server",
@@ -318,9 +318,9 @@ recipesList ServerConfig{..} mbranch moffset mlimit = liftIO $ RWL.withRead (git
     limit  = fromMaybe 20 mlimit
 
 
--- | Status of a recipe's workspace
+-- | Status of a blueprint's workspace
 data WorkspaceChanges = WorkspaceChanges {
-    wcName      :: T.Text,                                              -- ^ Recipe name
+    wcName      :: T.Text,                                              -- ^ Blueprint name
     wcChanged   :: Bool                                                 -- ^ True when it is newer than the last commit
 } deriving (Show, Eq)
 instance ToJSON WorkspaceChanges where
@@ -335,45 +335,45 @@ instance FromJSON WorkspaceChanges where
     return WorkspaceChanges{..}
 
 
--- | The JSON response for /recipes/info
+-- | The JSON response for /blueprints/info
 data RecipesInfoResponse = RecipesInfoResponse {
-    rirChanges  :: [WorkspaceChanges],                                  -- ^ Workspace status for each recipe
+    rirChanges  :: [WorkspaceChanges],                                  -- ^ Workspace status for each blueprint
     rirRecipes  :: [Recipe],                                            -- ^ The Recipe record
-    rirErrors   :: [RecipesAPIError]                                    -- ^ Errors reading the recipe
+    rirErrors   :: [RecipesAPIError]                                    -- ^ Errors reading the blueprint
 } deriving (Show, Eq)
 
 instance ToJSON RecipesInfoResponse where
   toJSON RecipesInfoResponse{..} = object [
       "changes"   .= rirChanges
-    , "recipes" .= rirRecipes
+    , "blueprints" .= rirRecipes
     , "errors"  .= rirErrors ]
 
 instance FromJSON RecipesInfoResponse where
-  parseJSON = withObject "/recipes/info response" $ \o -> do
+  parseJSON = withObject "/blueprints/info response" $ \o -> do
     rirChanges <- o .: "changes"
-    rirRecipes <- o .: "recipes"
+    rirRecipes <- o .: "blueprints"
     rirErrors  <- o .: "errors"
     return RecipesInfoResponse{..}
 
 
--- | /api/v0/recipes/info/\<recipes\>
--- Return the contents of the recipe, or a list of recipes
+-- | /api/v0/blueprints/info/\<recipes\>
+-- Return the contents of the blueprint, or a list of recipes
 --
 -- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
 -- [@mbranch@]: The branch name
--- [@recipes_names@]: A comma separated list of recipe names
+-- [@recipes_names@]: A comma separated list of blueprint names
 --
--- The errors list may be empty, or may include recipe-specific errors if
+-- The errors list may be empty, or may include blueprint-specific errors if
 -- there was a problem retrieving it.
 --
 -- > {
 -- >     "changes": [
 -- >         {
--- >             "name": "recipe-test",
+-- >             "name": "blueprint-test",
 -- >             "changed": true
 -- >         },
 -- >     ],
--- >     "recipes": [
+-- >     "blueprints": [
 -- >         {
 -- >             "name": "http-server",
 -- >             "description": "An example http server with PHP and MySQL support.",
@@ -417,8 +417,8 @@ instance FromJSON RecipesInfoResponse where
 -- >         },
 -- >     "errors": [
 -- >         {
--- >             "recipe": "a-missing-recipe",
--- >             "msg": "Error retrieving a-missing-recipe"
+-- >             "blueprint": "a-missing-blueprint",
+-- >             "msg": "Error retrieving a-missing-blueprint"
 -- >         }
 -- >     ]
 -- > }
@@ -483,9 +483,9 @@ getRecipeInfo repoLock branch recipe_name = do
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- | Details about commits to a recipe
+-- | Details about commits to a blueprint
 data RecipeChanges = RecipeChanges {
-    rcName      :: T.Text,                                              -- ^ Recipe name
+    rcName      :: T.Text,                                              -- ^ Blueprint name
     rcChange    :: [CommitDetails],                                     -- ^ Details of the commit
     rcTotal     :: Int                                                  -- ^ Total number of commits
 } deriving (Show, Eq)
@@ -497,16 +497,16 @@ instance ToJSON RecipeChanges where
     , "total"  .= rcTotal ]
 
 instance FromJSON RecipeChanges where
-  parseJSON = withObject "recipe changes" $ \o -> do
+  parseJSON = withObject "blueprint changes" $ \o -> do
     rcName   <- o .: "name"
     rcChange <- o .: "change"
     rcTotal  <- o .: "total"
     return RecipeChanges{..}
 
 
--- The JSON response for /recipes/changes
+-- The JSON response for /blueprints/changes
 data RecipesChangesResponse = RecipesChangesResponse {
-    rcrRecipes  :: [RecipeChanges],                                     -- ^ Changes for each recipe
+    rcrRecipes  :: [RecipeChanges],                                     -- ^ Changes for each blueprint
     rcrErrors   :: [RecipesAPIError],                                   -- ^ Any errors for the requested changes
     rcrOffset   :: Int,                                                 -- ^ Pagination offset
     rcrLimit    :: Int                                                  -- ^ Pagination limit
@@ -514,39 +514,39 @@ data RecipesChangesResponse = RecipesChangesResponse {
 
 instance ToJSON RecipesChangesResponse where
   toJSON RecipesChangesResponse{..} = object [
-      "recipes" .= rcrRecipes
+      "blueprints" .= rcrRecipes
     , "errors" .= rcrErrors
     , "offset" .= rcrOffset
     , "limit"  .= rcrLimit ]
 
 instance FromJSON RecipesChangesResponse where
-  parseJSON = withObject "/recipes/changes/ response" $ \o -> do
-    rcrRecipes <- o .: "recipes"
+  parseJSON = withObject "/blueprints/changes/ response" $ \o -> do
+    rcrRecipes <- o .: "blueprints"
     rcrErrors  <- o .: "errors"
     rcrOffset  <- o .: "offset"
     rcrLimit   <- o .: "limit"
     return RecipesChangesResponse{..}
 
 
--- | /api/v0/recipes/changes/\<recipes\>
--- Return the commit history of the recipes
+-- | /api/v0/blueprints/changes/\<recipes\>
+-- Return the commit history of the blueprints
 --
 -- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
 -- [@mbranch@]: The branch name
--- [@recipes_name@]: The recipe name
+-- [@recipes_name@]: The blueprint name
 -- [@moffset@]: The offset from the start of the results. Defaults to 0
 -- [@mlimit@]: Limit to the number of results to be returned. Defaults to 20
 --
--- The changes for each listed recipe will have offset and limit applied to them.
+-- The changes for each listed blueprint will have offset and limit applied to them.
 -- This means that there will be cases where changes will be empty, when offset > total
--- for the recipe.
+-- for the blueprint.
 --
--- If a recipe commit has been tagged as a new revision the changes will include a
+-- If a blueprint commit has been tagged as a new revision the changes will include a
 -- `revision` field set to the revision number. If the commit has not been tagged it
 -- will not have this field included.
 --
 -- > {
--- >     "recipes": [
+-- >     "blueprints": [
 -- >         {
 -- >             "name": "nfs-server",
 -- >             "changes": [
@@ -583,8 +583,8 @@ instance FromJSON RecipesChangesResponse where
 -- >     ],
 -- >     "errors": [
 -- >         {
--- >             "recipe": "a-missing-recipe",
--- >             "msg": "Error retrieving a-missing-recipe"
+-- >             "blueprint": "a-missing-recipe",
+-- >             "msg": "Error retrieving a-missing-blueprint"
 -- >         }
 -- >     ]
 -- >     "offset": 0,
@@ -642,22 +642,22 @@ instance ToJSON RecipesStatusResponse where
     , "errors" .= rsrErrors ]
 
 instance FromJSON RecipesStatusResponse where
-  parseJSON = withObject "/recipes/* status response" $ \o -> do
+  parseJSON = withObject "/blueprints/* status response" $ \o -> do
     rsrStatus <- o .: "status"
     rsrErrors <- o .: "errors"
     return RecipesStatusResponse{..}
 
 
--- | POST /api/v0/recipes/new
--- Create or update a recipe.
+-- | POST /api/v0/blueprints/new
+-- Create or update a blueprint.
 --
 -- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
 -- [@mbranch@]: The branch name
--- [@recipe@]: The Recipe record
+-- [@recipe@]: The blueprint record
 --
--- The body of the post is a JSON or TOML representation of the recipe. If Conten-Type is application/json
--- it uses the same format received from /api/v0/recipes/info/\<recipes\>, and if it is text/x-toml it uses
--- the recipe's TOML format for the body.
+-- The body of the post is a JSON or TOML representation of the blueprint. If Conten-Type is application/json
+-- it uses the same format received from /api/v0/blueprints/info/\<blueprints\>, and if it is text/x-toml it uses
+-- the blueprint's TOML format for the body.
 --
 -- The response for a successful POST is:
 --
@@ -679,12 +679,12 @@ recipesNew ServerConfig{..} mbranch recipe = liftIO $ RWL.withWrite (gitRepoLock
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- | DELETE /api/v0/recipes/delete/\<recipe\>
--- Delete the named recipe from the repository branch
+-- | DELETE /api/v0/blueprints/delete/\<recipe\>
+-- Delete the named blueprint from the repository branch
 --
 -- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
 -- [@mbranch@]: The branch name
--- [@recipe_name@]: The recipe name
+-- [@recipe_name@]: The blueprint name
 --
 -- The response for a successful DELETE is:
 --
@@ -706,12 +706,12 @@ recipesDelete ServerConfig{..} mbranch recipe_name = liftIO $ RWL.withWrite (git
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- | POST /api/v0/recipes/undo/\<recipe\>/\<commit\>
--- Revert a recipe to a previous commit
+-- | POST /api/v0/blueprints/undo/\<recipe\>/\<commit\>
+-- Revert a blueprint to a previous commit
 --
 -- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
 -- [@mbranch@]: The branch name
--- [@recipe_name@]: The recipe name
+-- [@recipe_name@]: The blueprint name
 -- [@commit@]: The commit to revert to
 --
 -- The response for a successful POST is:
@@ -734,14 +734,14 @@ recipesUndo ServerConfig{..} mbranch recipe_name commit = liftIO $ RWL.withWrite
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- | POST /api/v0/recipes/workspace
--- Update the temporary recipe workspace
+-- | POST /api/v0/blueprints/workspace
+-- Update the temporary blueprint workspace
 --
 -- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
 -- [@mbranch@]: The branch name
--- [@recipe@]: The Recipe record
+-- [@recipe@]: The blueprint record
 --
--- The body of the post is the same as /recipes/new/. For more details on the
+-- The body of the post is the same as /blueprints/new/. For more details on the
 -- workspace see "BDCS.API.Workspace"
 --
 -- The response for a successful POST is:
@@ -764,12 +764,12 @@ recipesWorkspace ServerConfig{..} mbranch recipe = liftIO $ RWL.withRead (gitRep
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- | DELETE /api/v0/recipes/workspace/\<recipe\>
--- Delete the named recipe from the workspace
+-- | DELETE /api/v0/blueprints/workspace/\<recipe\>
+-- Delete the named blueprint from the workspace
 --
 -- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
 -- [@mbranch@]: The branch name
--- [@recipe_name@]: The recipe name
+-- [@recipe_name@]: The blueprint name
 --
 -- The response for a successful DELETE is:
 --
@@ -791,12 +791,12 @@ recipesWorkspaceDelete ServerConfig{..} mbranch recipe_name = liftIO $ RWL.withW
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- | POST /api/v0/recipes/tag/<recipe>
--- Tag the most recent recipe commit as the next revision
+-- | POST /api/v0/blueprints/tag/<blueprint>
+-- Tag the most recent blueprint commit as the next revision
 --
 -- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
 -- [@mbranch@]: The branch name
--- [@recipe_name@]: The recipe name
+-- [@recipe_name@]: The blueprint name
 --
 -- If the commit is already tagged it will return False.
 --
@@ -820,7 +820,7 @@ recipesTag ServerConfig{..} mbranch recipe_name = liftIO $ RWL.withRead (gitRepo
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- | JSON response for /recipes/diff
+-- | JSON response for /blueprints/diff
 data RecipesDiffResponse = RecipesDiffResponse {
     rdrDiff :: [RecipeDiffEntry]
 } deriving (Eq, Show)
@@ -830,16 +830,16 @@ instance ToJSON RecipesDiffResponse where
       "diff" .= rdrDiff ]
 
 instance FromJSON RecipesDiffResponse where
-  parseJSON = withObject "/recipes/diff response" $ \o -> do
+  parseJSON = withObject "/blueprints/diff response" $ \o -> do
     rdrDiff <- o .: "diff"
     return RecipesDiffResponse{..}
 
--- | /api/v0/recipes/diff/<recipe>/<from_commit>/<to_commit>
--- Return the diff between the two recipe commits.
+-- | /api/v0/blueprints/diff/<blueprint>/<from_commit>/<to_commit>
+-- Return the diff between the two blueprint commits.
 --
 -- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
 -- [@mbranch@]: The branch name
--- [@recipe_name@]: The recipe name
+-- [@recipe_name@]: The blueprint name
 -- [@from_commit@]: The older commit to caclulate the difference from, can also be NEWEST
 -- [@to_commit@]: The newer commit to calculate the diff. to, can also be NEWEST or WORKSPACE
 --
@@ -847,19 +847,19 @@ instance FromJSON RecipesDiffResponse where
 -- instead and log an error.
 --
 --
--- In addition to the commit hashes listed by a call to /recipes/changes/\<recipe-name\> you
+-- In addition to the commit hashes listed by a call to /blueprints/changes/\<blueprint-name\> you
 -- can use NEWEST to compare the latest commit, and WORKSPACE to compare it with
--- the current temporary workspace version of the recipe. eg. to see what the differences
+-- the current temporary workspace version of the blueprint. eg. to see what the differences
 -- are between the current workspace and most recent commit of http-server you would call:
 --
--- > /recipes/diff/http-server/NEWEST/WORKSPACE
+-- > /blueprints/diff/http-server/NEWEST/WORKSPACE
 --
--- Each entry in the response's diff object contains the old recipe value and the new one.
+-- Each entry in the response's diff object contains the old blueprint value and the new one.
 -- If old is null and new is set, then it was added.
 -- If new is null and old is set, then it was removed.
 -- If both are set, then it was changed.
 --
--- The old/new entries will have the name of the recipe field that was changed. This
+-- The old/new entries will have the name of the blueprint field that was changed. This
 -- can be one of: Name, Description, Version, Module, or Package.
 -- The contents for these will be the old/new values for them.
 --
@@ -965,7 +965,7 @@ recipesDiff ServerConfig{..} mbranch recipe_name from_commit to_commit = liftIO 
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
--- | The recipe's dependency details
+-- | The blueprint's dependency details
 data RecipeDependencies = RecipeDependencies {
     rdRecipe       :: Recipe,
     rdDependencies :: [PackageNEVRA],
@@ -974,45 +974,45 @@ data RecipeDependencies = RecipeDependencies {
 
 instance ToJSON RecipeDependencies where
   toJSON RecipeDependencies{..} = object [
-      "recipe"       .= rdRecipe
+      "blueprint"       .= rdRecipe
     , "dependencies" .= rdDependencies
     , "modules"      .= rdModules ]
 
 instance FromJSON RecipeDependencies where
-  parseJSON = withObject "recipe dependencies" $ \o -> do
-    rdRecipe       <- o .: "recipe"
+  parseJSON = withObject "blueprint dependencies" $ \o -> do
+    rdRecipe       <- o .: "blueprint"
     rdDependencies <- o .: "dependencies"
     rdModules      <- o .: "modules"
     return RecipeDependencies{..}
 
 
--- | The JSON response for /recipes/depsolve/<recipes>
+-- | The JSON response for /blueprints/depsolve/<blueprints>
 data RecipesDepsolveResponse = RecipesDepsolveResponse {
-    rdrRecipes  :: [RecipeDependencies],                             -- ^ List of recipes and their dependencies
-    rdrErrors   :: [RecipesAPIError]                                 -- ^ Errors reading the recipe
+    rdrRecipes  :: [RecipeDependencies],                             -- ^ List of blueprints and their dependencies
+    rdrErrors   :: [RecipesAPIError]                                 -- ^ Errors reading the blueprint
 } deriving (Show, Eq)
 
 instance ToJSON RecipesDepsolveResponse where
   toJSON RecipesDepsolveResponse{..} = object [
-      "recipes" .= rdrRecipes
+      "blueprints" .= rdrRecipes
     , "errors"  .= rdrErrors ]
 
 instance FromJSON RecipesDepsolveResponse where
-  parseJSON = withObject "/recipes/depsolve response" $ \o -> do
-    rdrRecipes <- o .: "recipes"
+  parseJSON = withObject "/blueprints/depsolve response" $ \o -> do
+    rdrRecipes <- o .: "blueprints"
     rdrErrors  <- o .: "errors"
     return RecipesDepsolveResponse{..}
 
--- | /api/v0/recipes/depsolve/<recipes>
--- Return the recipe and summary information about all of its modules and packages.
+-- | /api/v0/blueprints/depsolve/<blueprints>
+-- Return the blueprint and summary information about all of its modules and packages.
 --
 -- [@pool@]: The sqlite connection pool object
 -- [@repoLock@]: The git repositories `ReadWriteLock` and Repository object
 -- [@mbranch@]: The branch name
--- [@recipe_names@]: The recipe names to depsolve, comma-separated if there is more than one
+-- [@recipe_names@]: The blueprint names to depsolve, comma-separated if there is more than one
 --
--- If a workspace version of the recipe is found it will be used for the depsolve. If there are
--- any errors reading the recipe, or depsolving it, they will be returned in the 'errors' object.
+-- If a workspace version of the blueprint is found it will be used for the depsolve. If there are
+-- any errors reading the blueprint, or depsolving it, they will be returned in the 'errors' object.
 --
 -- # Error example
 --
@@ -1020,23 +1020,23 @@ instance FromJSON RecipesDepsolveResponse where
 -- >     "errors": [
 -- >         {
 -- >             "msg": "nfs-server.toml is not present on branch master",
--- >             "recipe": "nfs-server"
+-- >             "blueprint": "nfs-server"
 -- >         }
 -- >     ],
--- >     "recipes": []
+-- >     "blueprints": []
 -- > }
 --
 --
 -- A successful result will include 3 items. 'dependencies' will be the NEVRAs of all of the
--- projects needed to satisfy the recipe's dependencies. 'modules' will be the project NEVRAs
--- for the modules and packages explicitly listed in the recipe, and 'recipe' will be a copy of
--- the recipe that was depsolved.
+-- projects needed to satisfy the blueprint's dependencies. 'modules' will be the project NEVRAs
+-- for the modules and packages explicitly listed in the blueprint, and 'blueprint' will be a copy of
+-- the blueprint that was depsolved.
 --
 -- # Abbreviated successful example
 --
 -- > {
 -- >     "errors": [],
--- >     "recipes": [
+-- >     "blueprints": [
 -- >         {
 -- >             "dependencies": [
 -- >                 {
@@ -1072,7 +1072,7 @@ instance FromJSON RecipesDepsolveResponse where
 -- >                 },
 -- >                 ...
 -- >             ],
--- >            "recipe": {
+-- >            "blueprint": {
 -- >                 "description": "An example http server with PHP and MySQL support.",
 -- >                 "modules": [
 -- >                     {
@@ -1153,34 +1153,34 @@ recipesDepsolve ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (g
         lookupProject project_name = find (\e -> pnName e == project_name) all_nevras
 
 
--- | The JSON response for /recipes/freeze/<recipes>
+-- | The JSON response for /blueprints/freeze/<blueprints>
 data RecipesFreezeResponse = RecipesFreezeResponse {
     rfrRecipes  :: [Recipe],                                         -- ^ Recipes with exact versions
-    rfrErrors   :: [RecipesAPIError]                                 -- ^ Errors reading the recipe
+    rfrErrors   :: [RecipesAPIError]                                 -- ^ Errors reading the blueprint
 } deriving (Show, Eq)
 
 instance ToJSON RecipesFreezeResponse where
   toJSON RecipesFreezeResponse{..} = object [
-      "recipes" .= rfrRecipes
+      "blueprints" .= rfrRecipes
     , "errors"  .= rfrErrors ]
 
 instance FromJSON RecipesFreezeResponse where
-  parseJSON = withObject "/recipes/freeze response" $ \o -> do
-    rfrRecipes <- o .: "recipes"
+  parseJSON = withObject "/blueprints/freeze response" $ \o -> do
+    rfrRecipes <- o .: "blueprints"
     rfrErrors  <- o .: "errors"
     return RecipesFreezeResponse{..}
 
--- | /api/v0/recipes/freeze/<recipes>
--- Return the contents of the recipe with frozen dependencies instead of expressions.
+-- | /api/v0/blueprints/freeze/<blueprints>
+-- Return the contents of the blueprint with frozen dependencies instead of expressions.
 --
--- This depsolves the recipe, and then replaces the modules and packages versions with
--- the EVR found by the depsolve, returning a frozen recipe.
+-- This depsolves the blueprint, and then replaces the modules and packages versions with
+-- the EVR found by the depsolve, returning a frozen blueprint.
 --
 -- # Examples
 --
 -- > {
 -- >     "errors": [],
--- >     "recipes": [
+-- >     "blueprints": [
 -- >         {
 -- >             "description": "An example http server with PHP and MySQL support.",
 -- >             "modules": [
@@ -1319,10 +1319,10 @@ mkPackageNEVRA (name, epoch, version, release, arch) = PackageNEVRA name (epoch'
 
 -- | The JSON response for /projects/list
 data ProjectsListResponse = ProjectsListResponse {
-    plpProjects :: [Projects],                                  -- ^ List of recipe names
+    plpProjects :: [Projects],                                  -- ^ List of project names
     plpOffset   :: Int,                                         -- ^ Pagination offset into results
     plpLimit    :: Int,                                         -- ^ Pagination limit of results
-    plpTotal    :: Int                                          -- ^ Total number of recipe names
+    plpTotal    :: Int                                          -- ^ Total number of project names
 } deriving (Show, Eq)
 
 instance ToJSON ProjectsListResponse where
@@ -1710,20 +1710,20 @@ modulesList ServerConfig{..} moffset mlimit module_names = do
     mkModuleName name = ModuleName { mnName=name, mnGroupType="rpm" }
 
 data ComposeBody = ComposeBody {
-    cbName :: T.Text,                                                   -- ^ Recipe name (from /recipes/list)
+    cbName :: T.Text,                                                   -- ^ Recipe name (from /blueprints/list)
     cbType :: T.Text,                                                   -- ^ Compose type (from /compose/types)
-    cbBranch :: Maybe T.Text                                            -- ^ The git branch to use for this recipe
+    cbBranch :: Maybe T.Text                                            -- ^ The git branch to use for this blueprint
 } deriving (Show, Eq)
 
 instance ToJSON ComposeBody where
     toJSON ComposeBody{..} = object [
-        "recipe_name"   .= cbName
+        "blueprint_name"   .= cbName
       , "compose_type"  .= cbType
       , "branch"        .= fromMaybe "master" cbBranch ]
 
 instance FromJSON ComposeBody where
     parseJSON = withObject "compose" $ \o -> do
-        cbName   <- o .:  "recipe_name"
+        cbName   <- o .:  "blueprint_name"
         cbType   <- o .:  "compose_type"
         cbBranch <- o .:? "branch"
         return ComposeBody{..}
@@ -1763,7 +1763,7 @@ compose cfg@ServerConfig{..} ComposeBody{..} test | cbType `notElem` supportedOu
         liftIO $ TIO.writeFile (resultsDir </> "STATUS") "WAITING"
 
         -- Write out the original recipe.
-        liftIO $ TIO.writeFile (resultsDir </> "recipe.toml") (recipeTOML recipe)
+        liftIO $ TIO.writeFile (resultsDir </> "blueprint.toml") (recipeTOML recipe)
 
         -- Freeze the recipe so we have precise versions of its components.  This could potentially
         -- return multiple frozen recipes, but I think only if we asked it to do multiple things.

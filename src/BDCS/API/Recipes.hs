@@ -420,7 +420,7 @@ revertFileCommit repo branch filename commit_id = do
     void $ Git.treeBuilderInsert builder filename blob_id Git.FileModeBlob
     (tree, sig, ref, encoding) <- prepareCommit repo branch builder
     commit <- Git.oIdToString commit_id >>= maybeThrow OIdError
-    let message = T.pack $ printf "Recipe %s reverted to commit %s" filename commit
+    let message = T.pack $ printf "%s reverted to commit %s" filename commit
     Git.repositoryCreateCommit repo ref sig sig encoding message tree [parent_commit] >>= maybeThrow CreateCommitError
 
 -- | File commit details
