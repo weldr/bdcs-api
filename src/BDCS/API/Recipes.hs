@@ -731,6 +731,8 @@ commitRecipe repo branch recipe = do
     let erecipe = recipeBumpVersion recipe old_version
     -- XXX Handle errors
     let recipe' = head $ rights [erecipe]
+    -- Update the workspace with the new commit
+    workspaceWrite repo branch recipe'
     let version = fromJust (rVersion recipe')
     let toml_out = encodeUtf8 $ recipeTOML recipe'
     let filename = recipeTomlFilename (rName recipe')
