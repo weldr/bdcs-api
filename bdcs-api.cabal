@@ -27,6 +27,7 @@ library
                         BDCS.API.TOMLMediaType,
                         BDCS.API.Utils,
                         BDCS.API.V0,
+                        BDCS.API.Version,
                         BDCS.API.Workspace
     -- other-modules:
     -- other-extensions:
@@ -42,6 +43,7 @@ library
                         gi-gio >= 2.0.14 && < 2.1.0,
                         gi-ggit >= 1.0.1 && < 1.1,
                         gi-glib >= 2.0.14 && < 2.1.0,
+                        gitrev >= 1.3.1 && < 1.4,
                         haskell-gi-base >= 0.20.3 && < 0.22,
                         htoml >= 1.0.0 && < 1.1,
                         http-media >= 0.7.1 && < 0.8,
@@ -68,6 +70,7 @@ library
                         wai-cors >= 0.2.5 && < 0.3,
                         warp >= 3.2.11 && < 3.3
     pkgconfig-depends:  libgit2-glib-1.0 >= 0.26.2
+    other-modules:      Paths_bdcs_api
 
     hs-source-dirs:     src
     default-language:   Haskell2010
@@ -77,10 +80,8 @@ executable bdcs-api-server
     main-is:            bdcs-api-server.hs
     hs-source-dirs:     tools
     build-depends:      base >= 4.9 && < 5.0,
-                        bdcs-api,
-                        gitrev >= 1.3.1 && < 1.4
-    other-modules:      Paths_bdcs_api,
-                        Cmdline
+                        bdcs-api
+    other-modules:      Cmdline
     default-language:   Haskell2010
     ghc-options:        -Wall
 

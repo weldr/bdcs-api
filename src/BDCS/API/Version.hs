@@ -1,4 +1,4 @@
--- Copyright (C) 2017 Red Hat, Inc.
+-- Copyright (C) 2018 Red Hat, Inc.
 --
 -- This file is part of bdcs-api.
 --
@@ -14,17 +14,19 @@
 --
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
+{-# LANGUAGE TemplateHaskell #-}
 
-import           BDCS.API.Server(runServer)
-import           BDCS.API.Version(apiVersion)
-import           Cmdline(CliOptions(..),
-                         parseArgs)
-import           Control.Monad(when)
+module BDCS.API.Version(apiVersion)
+  where
 
-main :: IO ()
-main = do
-    opts <- parseArgs
+import           Data.Version (showVersion)
+import           Development.GitRev
+import           Paths_bdcs_api(version)
 
-    when (optShowVersion opts) $ putStrLn ("bdcs-api " ++ apiVersion)
-
-    runServer (optPort opts) (optBDCS opts) (optRecipeRepo opts) (optMetadataDB opts)
+apiVersion :: String
+apiVersion = do
+        let git_version = $(gitDescribe)
+        if git_version == "UNKNOWN" then
+            "v" ++ showVersion version
+        else
+            git_version

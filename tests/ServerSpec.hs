@@ -24,7 +24,7 @@ import           BDCS.API.Recipe(Recipe(..), RecipeModule(..))
 import           BDCS.API.Recipes(CommitDetails(..), RecipeDiffType(..), RecipeDiffEntry(..))
 import           BDCS.API.Server
 import           BDCS.API.V0
-import           BDCS.DB(Projects(..))
+import           BDCS.DB(Projects(..), schemaVersion)
 import           Control.Conditional(whenM)
 import           Control.Exception(throwIO)
 import           Control.Monad.Loops(allM)
@@ -278,6 +278,25 @@ projectsInfoResponse2 = ProjectsInfoResponse [
                   piSummary = "Dummy summary",
                   piUpstream = "UPSTREAM_VCS" } ]
 
+-- | Check the status response
+-- Make sure it looks reasonable
+checkStatusResponse :: ClientM Bool
+checkStatusResponse = do
+    response <- getStatus
+    return $ weldrOK response && schemaOK response && dbOK response && srvSupported response
+  where
+    weldrOK :: ServerStatus -> Bool
+    weldrOK response = srvBackend response == "weldr"
+
+    schemaOK :: ServerStatus -> Bool
+    schemaOK response = srvSchema response == schemaVersion
+
+    -- During testing the schema and the database should always be equal
+    dbOK :: ServerStatus -> Bool
+    dbOK response = srvDb response == schemaVersion
+
+
+
 -- Post 10 changes to the test recipe
 postMultipleChanges :: ClientM Bool
 postMultipleChanges = allM newVersion [0..10]
@@ -459,7 +478,7 @@ spec = do
         -- NOTE that mkApp is executed for EACH of the 'it' sections
         withClient (mkApp "/var/tmp/content-store" "/var/tmp/bdcs-tmp-recipes/" "/var/tmp/test-bdcs.db") $ do
             it "API Status" $ \env ->
-                try env getStatus `shouldReturn` ServerStatus "0.0.0" "0" "0" False
+                try env checkStatusResponse `shouldReturn` True
 
             it "list the available recipes" $ \env ->
                 try env (getRecipes Nothing Nothing Nothing) `shouldReturn` recipesListResponse1

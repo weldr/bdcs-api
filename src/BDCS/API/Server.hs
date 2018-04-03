@@ -38,15 +38,19 @@ import           BDCS.API.Config(AskTuple, ServerConfig(..))
 import           BDCS.API.Recipes(openOrCreateRepo, commitRecipeDirectory)
 import           BDCS.API.Utils(GitLock(..))
 import           BDCS.API.V0(V0API, v0ApiServer)
+import           BDCS.API.Version(apiVersion)
+import           BDCS.DB(schemaVersion, getDbVersion)
 import           Control.Concurrent(ThreadId, forkFinally, forkIO)
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Concurrent.STM.TChan(newTChan, tryReadTChan)
 import           Control.Concurrent.STM.TMVar(putTMVar)
 import           Control.Conditional(whenM)
 import           Control.Monad(forever, void)
+import           Control.Monad.Except(runExceptT)
 import           Control.Monad.Logger(runStderrLoggingT)
 import           Control.Monad.STM(atomically)
 import           Data.Aeson
+import           Data.Int(Int64)
 import           Data.IORef(IORef, atomicModifyIORef', atomicWriteIORef, newIORef, readIORef)
 import           Data.Maybe(isNothing)
 import           Data.String.Conversions(cs)
@@ -61,21 +65,24 @@ import           System.Directory(createDirectoryIfMissing)
 
 -- | The status of the server, the database, and the API.
 data ServerStatus = ServerStatus
-  {  srvVersion   :: String                                     -- ^ Server version
-  ,  srvSchema    :: String                                     -- ^ Supported Database Schema version
-  ,  srvDb        :: String                                     -- ^ Database version
+  {  srvBackend   :: String                                     -- ^ Backend implementation (weldr, lorax-composer)
+  ,  srvVersion   :: String                                     -- ^ Server version
+  ,  srvSchema    :: Int64                                      -- ^ Supported Database Schema version
+  ,  srvDb        :: Int64                                      -- ^ Database version
   ,  srvSupported :: Bool                                       -- ^ True if the Database is supported by the Server
   } deriving (Eq, Show)
 
 instance ToJSON ServerStatus where
-  toJSON ServerStatus{..} = object [
-      "version"   .= srvVersion
+  toJSON ServerStatus{..} = object
+    [ "backend"   .= srvBackend
+    , "version"   .= srvVersion
     , "schema"    .= srvSchema
     , "db"        .= srvDb
     , "supported" .= srvSupported ]
 
 instance FromJSON ServerStatus where
   parseJSON = withObject "server status" $ \o -> do
+    srvBackend   <- o .: "backend"
     srvVersion   <- o .: "version"
     srvSchema    <- o .: "schema"
     srvDb        <- o .: "db"
@@ -83,21 +90,29 @@ instance FromJSON ServerStatus where
     return ServerStatus{..}
 
 -- | The /status route
-type CommonAPI = "status" :> Get '[JSON] ServerStatus
+type CommonAPI = "api" :> "status" :> Get '[JSON] ServerStatus
 
 
-serverStatus :: Handler ServerStatus
-serverStatus = return (ServerStatus "0.0.0" "0" "0" False)
+serverStatus :: ServerConfig -> Handler ServerStatus
+serverStatus ServerConfig{..} = do
+    version <- dbVersion
+    return (ServerStatus "weldr" apiVersion schemaVersion version (schemaVersion == version))
+  where
+    dbVersion = do
+        result <- runExceptT $ runSqlPool getDbVersion cfgPool
+        case result of
+            Left _        -> return 0
+            Right version -> return version
 
-commonServer :: Server CommonAPI
-commonServer = serverStatus
+commonServer :: ServerConfig -> Server CommonAPI
+commonServer cfg = serverStatus cfg
 
 -- | The combined API routes, /status and /api/v0/*
 type CombinedAPI = CommonAPI
               :<|> "api" :> "v0" :> V0API
 
 combinedServer :: ServerConfig -> Server CombinedAPI
-combinedServer cfg = commonServer
+combinedServer cfg = commonServer cfg
                 :<|> v0ApiServer cfg
 
 -- | CORS policy
