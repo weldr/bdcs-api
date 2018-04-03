@@ -467,7 +467,7 @@ getRecipeInfo repoLock branch recipe_name = do
         (Nothing,     Left e)       -> return $ Left e
         (Just recipe, Left _)       -> return $ Right (True, recipe)
         (Nothing,     Right recipe) -> return $ Right (False, recipe)
-        (Just ws_r,   Right git_r)  -> return $ Right (ws_r == git_r, ws_r)
+        (Just ws_r,   Right git_r)  -> return $ Right (ws_r /= git_r, ws_r)
   where
     -- | Read the recipe from the workspace, and convert WorkspaceErrors into Nothing
     catch_ws_recipe :: IO (Maybe Recipe)
