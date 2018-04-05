@@ -2,7 +2,9 @@ FROM fedora:latest
 
 RUN dnf -y install sudo git cabal-install ostree-devel xz-devel \
                    gobject-introspection-devel libcurl-devel \
-                   ghc-haskell-gi-devel libgit2-glib-devel
+                   ghc-haskell-gi-devel libgit2-glib-devel which && \
+    cabal update && \
+    cabal install --global happy hlint hpc-coveralls
 
 # source is already bind-mounted here
 WORKDIR /bdcs-api
