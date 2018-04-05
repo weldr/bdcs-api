@@ -15,6 +15,7 @@
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -31,9 +32,11 @@ import           BDCS.Groups(groupIdToNevra)
 import           BDCS.RPM.Utils(splitFilename)
 import           BDCS.Utils.Monad(mapMaybeM)
 import           Control.Monad.Except(runExceptT)
+import           Control.Monad.IO.Class(MonadIO)
+import           Control.Monad.Trans.Resource(MonadBaseControl)
 import           Data.Aeson((.=), (.:), FromJSON(..), ToJSON(..), object, withObject)
 import           Data.List(find)
-import           Data.Maybe(fromJust, fromMaybe, mapMaybe)
+import           Data.Maybe(fromMaybe, mapMaybe)
 import           Data.String.Conversions(cs)
 import qualified Data.Text as T
 import           Database.Persist.Sql(ConnectionPool, runSqlPool)
@@ -74,7 +77,7 @@ mkPackageNEVRA (name, epoch, version, release, arch) = PackageNEVRA name (epoch'
 
 -- | Depsolve a list of project names, returning a list of PackageNEVRA
 -- If there is an error it returns an empty list
-depsolveProjects :: ConnectionPool -> [T.Text] -> IO (Either String [PackageNEVRA])
+depsolveProjects :: (MonadBaseControl IO m, MonadIO m) => ConnectionPool -> [T.Text] -> m (Either String [PackageNEVRA])
 depsolveProjects pool project_name_list = do
     result <- runExceptT $ flip runSqlPool pool $ do
         -- XXX Need to properly deal with arches
@@ -85,7 +88,7 @@ depsolveProjects pool project_name_list = do
         Left  e           -> return $ Left (show e)
         Right assignments -> return $ Right (map (mkPackageNEVRA . splitFilename) assignments)
 
-depsolveRecipe :: ConnectionPool -> Recipe -> IO (Either T.Text ([PackageNEVRA], [PackageNEVRA]))
+depsolveRecipe :: (MonadBaseControl IO m, MonadIO m) => ConnectionPool -> Recipe -> m (Either T.Text ([PackageNEVRA], [PackageNEVRA]))
 depsolveRecipe pool recipe@Recipe{..} = do
     -- Make a list of the packages and modules (a set) and sort it by lowercase names
     let projects_name_list = map cs $ getAllRecipeProjects recipe

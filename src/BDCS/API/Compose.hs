@@ -15,6 +15,7 @@
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -42,10 +43,11 @@ import           Control.Conditional(ifM)
 import qualified Control.Exception as CE
 import           Control.Monad(filterM)
 import           Control.Monad.Except(ExceptT(..), runExceptT)
+import           Control.Monad.Logger(MonadLoggerIO, logDebugN, logErrorN, logInfoN)
 import           Control.Monad.IO.Class(liftIO)
-import           Control.Monad.Trans.Resource(runResourceT)
+import           Control.Monad.Trans.Resource(MonadBaseControl, MonadThrow, runResourceT)
 import           Data.Aeson((.:), (.=), FromJSON(..), ToJSON(..), object, withObject)
-import           Data.Time.Clock(UTCTime)
+import           Data.Time.Clock(UTCTime, getCurrentTime)
 import           Data.Either(rights)
 import           Data.String.Conversions(cs)
 import qualified Data.Text as T
@@ -123,19 +125,27 @@ data ComposeMsgAsk = AskBuildsWaiting
 data ComposeMsgResp = RespBuildsWaiting [T.Text]
                     | RespBuildsInProgress [T.Text]
 
-compose :: FilePath -> ConnectionPool -> ComposeInfo -> IO ()
+compose :: (MonadBaseControl IO m, MonadLoggerIO m, MonadThrow m) => FilePath -> ConnectionPool -> ComposeInfo -> m ()
 compose bdcs pool ComposeInfo{..} = do
-    TIO.writeFile (ciResultsDir </> "STATUS") "RUNNING"
+    logStatus "RUNNING" "Compose started on"
 
     depsolveRecipe pool ciRecipe >>= \case
-        Left _            -> TIO.writeFile (ciResultsDir </> "STATUS") "FAILED"
+        Left e            -> logErrorN (cs e) >> logStatus "FAILED" "Compose failed on"
         Right (nevras, _) -> do let things = map pkgString nevras
                                 runExceptT (runResourceT $ runSqlPool (exportAndCustomize bdcs ciDest things ciCustom) pool) >>= \case
-                                    Left _  -> TIO.writeFile (ciResultsDir </> "STATUS") "FAILED"
-                                    Right _ -> TIO.writeFile (ciResultsDir </> "STATUS") "FINISHED"
+                                    Left e  -> logErrorN (cs e) >> logStatus "FAILED" "Compose failed on"
+                                    Right _ -> logStatus "FINISHED" "Compose finished on"
  where
     pkgString :: PackageNEVRA -> T.Text
     pkgString PackageNEVRA{..} = T.concat [pnName, "-", pnVersion, "-", pnRelease, ".", pnArch]
+
+    logStatus :: MonadLoggerIO m => T.Text -> T.Text -> m ()
+    logStatus status msg = do
+        time <- liftIO $ do
+            TIO.writeFile (ciResultsDir </> "STATUS") status
+            getCurrentTime
+
+        logInfoN $ T.concat [msg, " ", cs (show time)]
 
 deleteCompose :: FilePath -> T.Text -> IO (Either UuidError UuidStatus)
 deleteCompose dir uuid =

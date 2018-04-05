@@ -46,7 +46,7 @@ import           Control.Concurrent.STM.TChan(newTChan, tryReadTChan)
 import           Control.Concurrent.STM.TMVar(putTMVar)
 import           Control.Monad(forever, void, when)
 import           Control.Monad.Except(runExceptT)
-import           Control.Monad.Logger(runStderrLoggingT)
+import           Control.Monad.Logger(runFileLoggingT, runStderrLoggingT)
 import           Control.Monad.STM(atomically)
 import           Data.Aeson
 import           Data.Int(Int64)
@@ -62,6 +62,7 @@ import           Network.Wai.Middleware.Cors
 import           Network.Wai.Middleware.Servant.Options
 import           Servant
 import           System.Directory(createDirectoryIfMissing)
+import           System.FilePath.Posix((</>))
 
 type InProgressMap = Map.Map T.Text (ThreadId, ComposeInfo)
 
@@ -200,7 +201,7 @@ composeServer ServerConfig{..} = do
             nextInQ cfgWorkQ >>= \case
                 -- Start another compose.  When the thread finishes (either because the
                 -- compose is done or because it failed), clear out the mutable variable.
-                Just ci -> do threadId <- forkFinally (compose cfgBdcs cfgPool ci)
+                Just ci -> do threadId <- forkFinally (runFileLoggingT (ciResultsDir ci </> "compose.log") $ compose cfgBdcs cfgPool ci)
                                                       (\_ -> removeCompose inProgressRef (ciId ci))
 
                               addCompose inProgressRef ci threadId
