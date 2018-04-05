@@ -43,7 +43,7 @@ import           Control.Conditional(ifM)
 import qualified Control.Exception as CE
 import           Control.Monad(filterM)
 import           Control.Monad.Except(ExceptT(..), runExceptT)
-import           Control.Monad.Logger(MonadLoggerIO, logDebugN, logErrorN, logInfoN)
+import           Control.Monad.Logger(MonadLoggerIO, logErrorN, logInfoN)
 import           Control.Monad.IO.Class(liftIO)
 import           Control.Monad.Trans.Resource(MonadBaseControl, MonadThrow, runResourceT)
 import           Data.Aeson((.:), (.=), FromJSON(..), ToJSON(..), object, withObject)
@@ -132,6 +132,8 @@ compose bdcs pool ComposeInfo{..} = do
     depsolveRecipe pool ciRecipe >>= \case
         Left e            -> logErrorN (cs e) >> logStatus "FAILED" "Compose failed on"
         Right (nevras, _) -> do let things = map pkgString nevras
+                                logInfoN $ "Exporting packages: " `T.append` T.intercalate " " things
+
                                 runExceptT (runResourceT $ runSqlPool (exportAndCustomize bdcs ciDest things ciCustom) pool) >>= \case
                                     Left e  -> logErrorN (cs e) >> logStatus "FAILED" "Compose failed on"
                                     Right _ -> logStatus "FINISHED" "Compose finished on"
