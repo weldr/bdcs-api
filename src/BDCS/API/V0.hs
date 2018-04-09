@@ -76,7 +76,7 @@ import           BDCS.DB
 import           BDCS.Builds(findBuilds, getBuild)
 import           BDCS.Export.Utils(supportedOutputs)
 import           BDCS.Groups(getGroupsLike)
-import           BDCS.Projects(findProject, getProject, projects)
+import           BDCS.Projects(findProject, getProject, getProjectsLike)
 import           BDCS.Sources(findSources, getSource)
 import           BDCS.Utils.Either(maybeToEither)
 import           BDCS.Utils.Monad(concatMapM, mapMaybeM)
@@ -1361,11 +1361,11 @@ instance FromJSON ProjectsListResponse where
 -- > }
 projectsList :: ServerConfig -> Maybe Int -> Maybe Int -> Handler ProjectsListResponse
 projectsList ServerConfig{..} moffset mlimit = do
-    result <- runExceptT $ runSqlPool projects cfgPool
+    result <- runExceptT $ runSqlPool (getProjectsLike offset64 limit64 "%") cfgPool
     case result of
         -- TODO Properly report errors with a different response
-        Left _         -> return $ ProjectsListResponse [] offset limit 0
-        Right project_info -> return $ ProjectsListResponse (applyLimits limit offset project_info) offset limit (length project_info)
+        Left _                        -> return $ ProjectsListResponse [] offset limit 0
+        Right (project_info, total64) -> return $ ProjectsListResponse project_info offset limit (fromIntegral total64)
   where
     -- | Return the offset or the default
     offset :: Int
@@ -1374,6 +1374,14 @@ projectsList ServerConfig{..} moffset mlimit = do
     -- | Return the limit or the default
     limit :: Int
     limit  = fromMaybe 20 mlimit
+
+    -- | Return the offset or the default
+    offset64 :: Maybe Int64
+    offset64 = Just $ fromIntegral $ fromMaybe 0 moffset
+
+    -- | Return the limit or the default
+    limit64 :: Maybe Int64
+    limit64  = Just $ fromIntegral $ fromMaybe 20 mlimit
 
 
 -- | The JSON response for /projects/info
