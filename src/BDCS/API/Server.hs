@@ -59,7 +59,6 @@ import qualified GI.Ggit as Git
 import           Network.Wai
 import           Network.Wai.Handler.Warp
 import           Network.Wai.Middleware.Cors
-import           Network.Wai.Middleware.Servant.Options
 import           Servant
 import           System.Directory(createDirectoryIfMissing)
 import           System.FilePath.Posix((</>))
@@ -134,7 +133,6 @@ proxyAPI = Proxy
 
 app :: ServerConfig -> Application
 app cfg = appCors
-        $ provideOptions proxyAPI
         $ serve proxyAPI
         $ combinedServer cfg
 

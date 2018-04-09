@@ -79,6 +79,7 @@ import           BDCS.Projects(findProject, getProject, projects)
 import           BDCS.Sources(findSources, getSource)
 import           BDCS.Utils.Either(maybeToEither)
 import           BDCS.Utils.Monad(mapMaybeM)
+import qualified Codec.Archive.Tar as Tar
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Concurrent.STM.TChan(writeTChan)
 import           Control.Concurrent.STM.TMVar(newEmptyTMVar, readTMVar)
@@ -87,6 +88,7 @@ import           Control.Monad.STM(atomically)
 import           Control.Monad.Except
 import           Data.Aeson
 import           Data.Bifunctor(bimap)
+import qualified Data.ByteString.Lazy as LBS
 import           Data.Either(partitionEithers, rights)
 import           Data.IORef(atomicModifyIORef')
 import           Data.List(find, sortBy)
@@ -99,6 +101,7 @@ import           Data.Time.Clock(UTCTime)
 import           Database.Persist.Sql
 import           Data.GI.Base(GError(..))
 import           Data.UUID.V4(nextRandom)
+import           GHC.TypeLits(KnownSymbol)
 import qualified GI.Ggit as Git
 import           Servant
 import           System.Directory(createDirectoryIfMissing)
@@ -207,6 +210,8 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                     :> Get '[JSON] ComposeStatusResponse
         :<|> "compose"  :> "delete" :> Capture "uuids" String
                                     :> Delete '[JSON] ComposeDeleteResponse
+        :<|> "compose"  :> "logs"   :> Capture "uuid" String
+                                    :> Get '[OctetStream] (Headers '[Header "Content-Disposition" String] LBS.ByteString)
 
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: ServerConfig -> Server V0API
@@ -235,6 +240,7 @@ v0ApiServer cfg = projectsListH
              :<|> composeFailedH
              :<|> composeStatusH
              :<|> composeDeleteH
+             :<|> composeLogsH
   where
     projectsListH offset limit                       = projectsList cfg offset limit
     projectsInfoH project_names                      = projectsInfo cfg project_names
@@ -261,6 +267,7 @@ v0ApiServer cfg = projectsListH
     composeFailedH                                   = composeQueueFailed cfg
     composeStatusH uuids                             = composeStatus cfg (T.splitOn "," $ cs uuids)
     composeDeleteH uuids                             = composeDelete cfg (T.splitOn "," $ cs uuids)
+    composeLogsH uuid                                = composeLogs cfg uuid
 
 -- | A test using ServantErr
 errTest :: Handler [T.Text]
@@ -2041,3 +2048,26 @@ composeDelete ServerConfig{..} uuids = do
     results <- liftIO $ mapM (deleteCompose cfgResultsDir) uuids
     let (errors, successes) = partitionEithers results
     return ComposeDeleteResponse { cdrErrors=errors, cdrUuids=successes }
+
+
+-- | /api/v0/compose/logs/<uuid>
+--
+-- Returns a .tar of the anaconda build logs. The tar is not compressed, but is
+-- not large.
+--
+-- The mime type is set to 'application/x-tar' and the filename is set to
+-- UUID-logs.tar
+composeLogs :: KnownSymbol h => ServerConfig -> String -> Handler (Headers '[Header h String] LBS.ByteString)
+composeLogs ServerConfig{..} uuid = do
+    result <- liftIO $ runExceptT $ mkComposeStatus cfgResultsDir (cs uuid)
+    case result of
+        Left _                  -> throwError $ createApiError err400 "compose_logs" (cs uuid ++ " is not a valid build uuid")
+        Right ComposeStatus{..} ->
+            if csQueueStatus `notElem` ["FINISHED", "FAILED"]
+            then throwError $ createApiError err400 "compose_logs" ("Build " ++ cs uuid ++ " not in FINISHED or FAILED state.")
+            else do
+                let composeResultsDir = cfgResultsDir </> cs uuid
+                    logFiles          = ["compose.log"]
+
+                tar <- liftIO $ Tar.pack composeResultsDir logFiles
+                return $ addHeader ("attachment; filename=" ++ uuid ++ "-logs.tar;") (Tar.write tar)

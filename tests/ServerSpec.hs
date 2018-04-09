@@ -14,6 +14,7 @@
 --
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module ServerSpec
@@ -28,6 +29,7 @@ import           BDCS.DB(Projects(..), schemaVersion)
 import           Control.Conditional(whenM)
 import           Control.Exception(throwIO)
 import           Control.Monad.Loops(allM)
+import qualified Data.ByteString.Lazy as LBS
 import           Data.List(isSuffixOf)
 import qualified Data.Text as T
 import           Data.Time.Clock(UTCTime)
@@ -73,6 +75,7 @@ getComposeQueueFinished :: ClientM ComposeFinishedResponse
 getComposeQueueFailed :: ClientM ComposeFailedResponse
 getComposeStatus :: String -> ClientM ComposeStatusResponse
 getComposeDelete :: String -> ClientM ComposeDeleteResponse
+getComposeLogs :: String -> ClientM (Headers '[Header "Content-Disposition" String] LBS.ByteString)
 getStatus :<|> getProjectsList :<|> getProjectsInfo :<|> getProjectsDepsolve :<|> getErr
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
           :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo
@@ -80,7 +83,7 @@ getStatus :<|> getProjectsList :<|> getProjectsInfo :<|> getProjectsDepsolve :<|
           :<|> getRecipesDepsolve :<|> getRecipesFreeze :<|> getModulesList
           :<|> getModulesList' :<|> getCompose :<|> getComposeTypes :<|> getComposeQueue
           :<|> getComposeQueueFinished :<|> getComposeQueueFailed :<|> getComposeStatus
-          :<|> getComposeDelete = client proxyAPI
+          :<|> getComposeDelete :<|> getComposeLogs = client proxyAPI
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.
