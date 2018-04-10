@@ -2052,7 +2052,7 @@ composeDelete ServerConfig{..} uuids = do
 
 -- | /api/v0/compose/logs/<uuid>
 --
--- Returns a .tar of the anaconda build logs. The tar is not compressed, but is
+-- Returns a .tar of the compose logs.  The tar is not compressed, but it is
 -- not large.
 --
 -- The mime type is set to 'application/x-tar' and the filename is set to
