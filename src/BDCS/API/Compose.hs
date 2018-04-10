@@ -36,7 +36,7 @@ module BDCS.API.Compose(ComposeInfo(..),
   where
 
 import           BDCS.API.Depsolve(PackageNEVRA(..), depsolveRecipe)
-import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded, queueStatusFromText)
+import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded, queueStatusText, queueStatusFromText)
 import           BDCS.API.Recipe(Recipe(..), parseRecipe)
 import           BDCS.Export.Customize(Customization)
 import           BDCS.Export(exportAndCustomize)
@@ -129,24 +129,24 @@ data ComposeMsgResp = RespBuildsWaiting [T.Text]
 
 compose :: (MonadBaseControl IO m, MonadLoggerIO m, MonadThrow m) => FilePath -> ConnectionPool -> ComposeInfo -> m ()
 compose bdcs pool ComposeInfo{..} = do
-    logStatus "RUNNING" "Compose started on"
+    logStatus QRunning "Compose started on"
 
     depsolveRecipe pool ciRecipe >>= \case
-        Left e            -> logErrorN (cs e) >> logStatus "FAILED" "Compose failed on"
+        Left e            -> logErrorN (cs e) >> logStatus QFailed "Compose failed on"
         Right (nevras, _) -> do let things = map pkgString nevras
                                 logInfoN $ "Exporting packages: " `T.append` T.intercalate " " things
 
                                 runExceptT (runResourceT $ runSqlPool (exportAndCustomize bdcs ciDest things ciCustom) pool) >>= \case
-                                    Left e  -> logErrorN (cs e) >> logStatus "FAILED" "Compose failed on"
-                                    Right _ -> logStatus "FINISHED" "Compose finished on"
+                                    Left e  -> logErrorN (cs e) >> logStatus QFailed "Compose failed on"
+                                    Right _ -> logStatus QFinished "Compose finished on"
  where
     pkgString :: PackageNEVRA -> T.Text
     pkgString PackageNEVRA{..} = T.concat [pnName, "-", pnVersion, "-", pnRelease, ".", pnArch]
 
-    logStatus :: MonadLoggerIO m => T.Text -> T.Text -> m ()
+    logStatus :: MonadLoggerIO m => QueueStatus -> T.Text -> m ()
     logStatus status msg = do
         time <- liftIO $ do
-            TIO.writeFile (ciResultsDir </> "STATUS") status
+            TIO.writeFile (ciResultsDir </> "STATUS") (queueStatusText status)
             getCurrentTime
 
         logInfoN $ T.concat [msg, " ", cs (show time)]

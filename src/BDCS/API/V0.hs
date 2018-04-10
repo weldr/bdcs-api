@@ -66,7 +66,7 @@ import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Customization(processCustomization)
 import           BDCS.API.Depsolve
 import           BDCS.API.Error(createApiError)
-import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded)
+import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded, queueStatusText)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
 import           BDCS.API.TOMLMediaType
@@ -1745,7 +1745,7 @@ compose cfg@ServerConfig{..} ComposeBody{..} test | cbType `notElem` supportedOu
         let resultsDir = cfgResultsDir </> show buildId
         liftIO $ do
             createDirectoryIfMissing True resultsDir
-            TIO.writeFile (resultsDir </> "STATUS") "WAITING"
+            TIO.writeFile (resultsDir </> "STATUS") (queueStatusText QWaiting)
             -- Write out the original recipe.
             TIO.writeFile (resultsDir </> "blueprint.toml") (recipeTOML recipe)
 
