@@ -36,9 +36,11 @@ module BDCS.API.Compose(ComposeInfo(..),
   where
 
 import           BDCS.API.Depsolve(PackageNEVRA(..), depsolveRecipe)
+import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded, queueStatusFromText)
 import           BDCS.API.Recipe(Recipe(..), parseRecipe)
 import           BDCS.Export.Customize(Customization)
 import           BDCS.Export(exportAndCustomize)
+import           BDCS.Utils.Either(maybeToEither)
 import           Control.Conditional(ifM)
 import qualified Control.Exception as CE
 import           Control.Monad(filterM)
@@ -68,7 +70,7 @@ data ComposeInfo = ComposeInfo
 data ComposeStatus = ComposeStatus {
     csBuildId       :: T.Text,
     csName          :: T.Text,
-    csQueueStatus   :: T.Text,
+    csQueueStatus   :: QueueStatus,
     csTimestamp     :: UTCTime,
     csVersion       :: T.Text
 } deriving (Show, Eq)
@@ -154,7 +156,7 @@ deleteCompose dir uuid =
     liftIO (runExceptT $ mkComposeStatus dir uuid) >>= \case
         Left _                  -> return $ Left UuidError { ueError="Not a valid build uuid", ueUuid=uuid }
         Right ComposeStatus{..} ->
-            if csQueueStatus `notElem` ["FINISHED", "FAILED"]
+            if not (queueStatusEnded csQueueStatus)
             then return $ Left UuidError { ueError="Build not in FINISHED or FAILED", ueUuid=uuid }
             else do
                 let path = dir </> cs uuid
@@ -191,9 +193,11 @@ mkComposeStatus baseDir buildId = do
     mtime      <- tryIO   $ getModificationTime (path </> "STATUS")
     status     <- tryIO   $ TIO.readFile (path </> "STATUS")
 
+    status'    <- maybeToEither "Unknown queue status for compose" (queueStatusFromText status)
+
     return ComposeStatus { csBuildId = buildId,
                            csName = cs rName,
-                           csQueueStatus = status,
+                           csQueueStatus = status',
                            csTimestamp = mtime,
                            csVersion = maybe "0.0.1" cs rVersion }
  where

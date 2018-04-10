@@ -22,6 +22,7 @@ library
                         BDCS.API.Customization,
                         BDCS.API.Depsolve,
                         BDCS.API.Error,
+                        BDCS.API.QueueStatus,
                         BDCS.API.Recipe,
                         BDCS.API.Recipes,
                         BDCS.API.Server,

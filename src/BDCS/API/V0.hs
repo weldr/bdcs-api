@@ -66,6 +66,7 @@ import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Customization(processCustomization)
 import           BDCS.API.Depsolve
 import           BDCS.API.Error(createApiError)
+import           BDCS.API.QueueStatus(queueStatusEnded)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
 import           BDCS.API.TOMLMediaType
@@ -2063,7 +2064,7 @@ composeLogs ServerConfig{..} uuid = do
     case result of
         Left _                  -> throwError $ createApiError err400 "compose_logs" (cs uuid ++ " is not a valid build uuid")
         Right ComposeStatus{..} ->
-            if csQueueStatus `notElem` ["FINISHED", "FAILED"]
+            if not (queueStatusEnded csQueueStatus)
             then throwError $ createApiError err400 "compose_logs" ("Build " ++ cs uuid ++ " not in FINISHED or FAILED state.")
             else do
                 let composeResultsDir = cfgResultsDir </> cs uuid
