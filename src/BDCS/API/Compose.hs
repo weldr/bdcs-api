@@ -164,7 +164,7 @@ deleteCompose dir uuid =
                              return $ Right UuidStatus { usStatus=True, usUuid=uuid })
                          (\(e :: CE.IOException) -> return $ Left UuidError { ueError=cs $ show e, ueUuid=uuid })
 
-getComposesWithStatus :: FilePath -> T.Text -> IO [ComposeStatus]
+getComposesWithStatus :: FilePath -> QueueStatus -> IO [ComposeStatus]
 getComposesWithStatus resultsDir status = do
     -- First, gather up all the subdirectories of resultsDir.  Each of these is a UUID for
     -- some compose, wher that one has finished or is in progress or is in the queue.
@@ -181,7 +181,7 @@ getComposesWithStatus resultsDir status = do
         ifM (doesFileExist statusFile)
             (do line <- CE.catch (TIO.readFile statusFile)
                                  (\(_ :: CE.IOException) -> return "")
-                return $ line == status)
+                return $ queueStatusFromText line == Just status)
             (return False)
 
 mkComposeStatus :: FilePath -> T.Text -> ExceptT String IO ComposeStatus

@@ -66,7 +66,7 @@ import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Customization(processCustomization)
 import           BDCS.API.Depsolve
 import           BDCS.API.Error(createApiError)
-import           BDCS.API.QueueStatus(queueStatusEnded)
+import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
 import           BDCS.API.TOMLMediaType
@@ -1940,7 +1940,7 @@ instance FromJSON ComposeFinishedResponse where
 -- > }
 composeQueueFinished :: ServerConfig -> Handler ComposeFinishedResponse
 composeQueueFinished ServerConfig{..} = do
-    results <- liftIO $ getComposesWithStatus cfgResultsDir "FINISHED"
+    results <- liftIO $ getComposesWithStatus cfgResultsDir QFinished
     return $ ComposeFinishedResponse results
 
 
@@ -1973,7 +1973,7 @@ instance FromJSON ComposeFailedResponse where
 -- > }
 composeQueueFailed :: ServerConfig -> Handler ComposeFailedResponse
 composeQueueFailed ServerConfig{..} = do
-    results <- liftIO $ getComposesWithStatus cfgResultsDir "FAILED"
+    results <- liftIO $ getComposesWithStatus cfgResultsDir QFailed
     return $ ComposeFailedResponse results
 
 
