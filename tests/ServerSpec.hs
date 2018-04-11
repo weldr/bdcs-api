@@ -53,7 +53,6 @@ getStatus :: ClientM ServerStatus
 getProjectsList :: Maybe Int -> Maybe Int -> ClientM ProjectsListResponse
 getProjectsInfo :: String -> ClientM ProjectsInfoResponse
 getProjectsDepsolve :: String -> ClientM ProjectsDepsolveResponse
-getErr :: ClientM [T.Text]
 getRecipes :: Maybe Int -> Maybe Int -> Maybe String -> ClientM RecipesListResponse
 getRecipesInfo :: String -> Maybe String -> ClientM RecipesInfoResponse
 getRecipesChanges :: String -> Maybe Int -> Maybe Int -> Maybe String -> ClientM RecipesChangesResponse
@@ -76,7 +75,7 @@ getComposeQueueFailed :: ClientM ComposeFailedResponse
 getComposeStatus :: String -> ClientM ComposeStatusResponse
 getComposeDelete :: String -> ClientM ComposeDeleteResponse
 getComposeLogs :: String -> ClientM (Headers '[Header "Content-Disposition" String] LBS.ByteString)
-getStatus :<|> getProjectsList :<|> getProjectsInfo :<|> getProjectsDepsolve :<|> getErr
+getStatus :<|> getProjectsList :<|> getProjectsInfo :<|> getProjectsDepsolve
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
           :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo
           :<|> postRecipesWorkspace :<|> deleteRecipesWorkspace :<|> postRecipesTag :<|> getRecipesDiff

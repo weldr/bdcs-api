@@ -15,26 +15,55 @@
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 {-| Error functions for use with "BDCS.API"
 -}
-module BDCS.API.Error(createApiError)
+module BDCS.API.Error(createAPIError)
   where
 
+import           Data.Aeson
 import qualified Data.ByteString.Lazy.Char8 as C8
 import           Network.HTTP.Types(Header)
 import           Servant hiding (Header)
 
+-- | API Status response with possible error messages
+-- used to report errors with API requests
+--
+-- This is converted to a JSON error response that is used in the API responses
+--
+-- > {
+-- >     "status": false,
+-- >     "errors": ["compose: Unsupported output type"]
+-- >     }
+-- > }
+data APIResponseJSON = APIResponseJSON
+    { arjStatus :: Bool
+    , arjErrors :: [String]
+    } deriving Show
+
+instance FromJSON APIResponseJSON where
+  parseJSON = withObject "API Response JSON" $ \o -> do
+    arjStatus <- o .: "status"
+    arjErrors <- o .: "errors"
+    return APIResponseJSON{..}
+
+instance ToJSON APIResponseJSON where
+  toJSON APIResponseJSON{..} = object
+    [ "status" .= arjStatus
+    , "errors" .= arjErrors
+    ]
+
 -- | Create a 'ServantErr' with an error id and a message
 --
 -- [@base@]: The default 'ServantErr' response
--- [@apiId@]: An ID to use to link it to the API
--- [@message@]: A human readable message to include with the error
-createApiError :: ServantErr -> String -> String -> ServantErr
-createApiError base apiId message = base { errBody=apiError, errHeaders=[jsonContentHdr] }
+-- [@status@]: The response status
+-- [@messages@]: A list of human readable messages to include with the error
+createAPIError :: ServantErr -> Bool -> [String] -> ServantErr
+createAPIError base status messages = base { errBody=apiError, errHeaders=[jsonContentHdr] }
   where
     apiError :: C8.ByteString
-    apiError = C8.pack $ "{ \"id\":\"" ++ apiId ++ "\", \"message\":\"" ++ message ++ "\" }"
+    apiError = encode $ toJSON $ APIResponseJSON status messages
 
     jsonContentHdr :: Header
     jsonContentHdr = ("Content-Type", "application/json")

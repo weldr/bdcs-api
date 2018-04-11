@@ -65,7 +65,7 @@ import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsg
 import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Customization(processCustomization)
 import           BDCS.API.Depsolve
-import           BDCS.API.Error(createApiError)
+import           BDCS.API.Error(createAPIError)
 import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded, queueStatusText)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
@@ -152,7 +152,6 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                   :> QueryParam "limit" Int :> Get '[JSON] ProjectsListResponse
         :<|> "projects" :> "info"     :> Capture "project_names" String :> Get '[JSON] ProjectsInfoResponse
         :<|> "projects" :> "depsolve" :> Capture "project_names" String :> Get '[JSON] ProjectsDepsolveResponse
-        :<|> "errtest"  :> Get '[JSON] [T.Text]
         :<|> "blueprints"  :> "list" :> QueryParam "offset" Int
                                      :> QueryParam "limit" Int
                                      :> QueryParam "branch" String
@@ -221,7 +220,6 @@ v0ApiServer :: ServerConfig -> Server V0API
 v0ApiServer cfg = projectsListH
              :<|> projectsInfoH
              :<|> projectsDepsolveH
-             :<|> errTestH
              :<|> recipesListH
              :<|> recipesInfoH
              :<|> recipesChangesH
@@ -248,7 +246,6 @@ v0ApiServer cfg = projectsListH
     projectsListH offset limit                       = projectsList cfg offset limit
     projectsInfoH project_names                      = projectsInfo cfg project_names
     projectsDepsolveH project_names                  = projectsDepsolve cfg project_names
-    errTestH                                         = errTest
     recipesListH offset limit branch                 = recipesList cfg branch offset limit
     recipesInfoH recipes branch                      = recipesInfo cfg branch recipes
     recipesChangesH recipes offset limit branch      = recipesChanges cfg branch recipes offset limit
@@ -271,13 +268,6 @@ v0ApiServer cfg = projectsListH
     composeStatusH uuids                             = composeStatus cfg (T.splitOn "," $ cs uuids)
     composeDeleteH uuids                             = composeDelete cfg (T.splitOn "," $ cs uuids)
     composeLogsH uuid                                = composeLogs cfg uuid
-
--- | A test using ServantErr
-errTest :: Handler [T.Text]
-errTest = throwError myError
-  where
-    myError :: ServantErr
-    myError = createApiError err503 "test_api_error" "This is a test of an API Error Response"
 
 -- | The JSON response for /blueprints/list
 data RecipesListResponse = RecipesListResponse {
@@ -329,7 +319,7 @@ recipesList ServerConfig{..} mbranch moffset mlimit = liftIO $ RWL.withRead (git
     return $ RecipesListResponse (applyLimits limit offset recipes) offset limit (length recipes)
   where
     -- handleGitErrors :: GitError -> ServantErr
-    -- handleGitErrors e = createApiError err500 "recipes_list" ("Git Error: " ++ show e)
+    -- handleGitErrors e = createAPIError err500 false ["recipes_list: Git Error: " ++ show e]
 
     -- | Return the offset or the default
     offset :: Int
@@ -1778,9 +1768,9 @@ instance FromJSON ComposeResponse where
 -- | POST /api/v0/compose
 -- Start a compose.
 compose :: ServerConfig -> ComposeBody -> Maybe Int -> Handler ComposeResponse
-compose cfg@ServerConfig{..} ComposeBody{..} test | cbType `notElem` supportedOutputs =
-    return $ ComposeResponse False [] [T.concat ["Invalid compose type (", cs cbType, "), must be one of ", T.intercalate "," supportedOutputs]]
-                                           | otherwise =
+compose cfg@ServerConfig{..} ComposeBody{..} test
+    | cbType `notElem` supportedOutputs = throwError unsupportedOutput
+    | otherwise =
     withRecipe cfgRepoLock cbBranch cbName $ \recipe -> do
         buildId <- liftIO nextRandom
         let resultsDir = cfgResultsDir </> show buildId
@@ -1809,6 +1799,13 @@ compose cfg@ServerConfig{..} ComposeBody{..} test | cbType `notElem` supportedOu
             void $ atomicModifyIORef' cfgWorkQ (\ref -> (ref ++ [ci], ()))
             return $ ComposeResponse True [T.pack $ show buildId] []
  where
+    -- | Construct an error message for unsupported output selected
+    unsupportedOutput = createAPIError err400 False (
+        concat ["compose: Invalid compose type (",
+                  cs cbType,
+                  "), must be one of ",
+                  cs $ T.intercalate "," supportedOutputs])
+
     withRecipe :: GitLock -> Maybe T.Text -> T.Text -> (Recipe -> Handler ComposeResponse) -> Handler ComposeResponse
     withRecipe lock branch name fn =
         liftIO (getRecipeInfo lock (defaultBranch $ fmap cs branch) name) >>= \case
@@ -2103,10 +2100,10 @@ composeLogs :: KnownSymbol h => ServerConfig -> String -> Handler (Headers '[Hea
 composeLogs ServerConfig{..} uuid = do
     result <- liftIO $ runExceptT $ mkComposeStatus cfgResultsDir (cs uuid)
     case result of
-        Left _                  -> throwError $ createApiError err400 "compose_logs" (cs uuid ++ " is not a valid build uuid")
+        Left _                  -> throwError $ createAPIError err400 False ("compose_logs: " ++ cs uuid ++ " is not a valid build uuid")
         Right ComposeStatus{..} ->
             if not (queueStatusEnded csQueueStatus)
-            then throwError $ createApiError err400 "compose_logs" ("Build " ++ cs uuid ++ " not in FINISHED or FAILED state.")
+            then throwError $ createAPIError err400 False ("compose_logs: Build " ++ cs uuid ++ " not in FINISHED or FAILED state.")
             else do
                 let composeResultsDir = cfgResultsDir </> cs uuid
                     logFiles          = ["compose.log"]
