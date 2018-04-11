@@ -47,7 +47,7 @@ ci: bdcs-api-img
 
 ci_after_success:
 	sudo docker run --rm --security-opt label=disable -v `pwd`:/bdcs-api/ \
-	    --env "TRAVIS=$$TRAVIS" --env "TRAVIS_JOB_ID=$$TRAVIS_JOB_ID" --entrypoint /usr/bin/make welder/bdcs-api coveralls
+	    --env "TRAVIS=$$TRAVIS" --env "TRAVIS_JOB_ID=$$TRAVIS_JOB_ID" --entrypoint /usr/bin/make welder/bdcs-api-build-img coveralls
 
 coveralls:
 	if [ -z "$$(which hpc-coveralls)" ]; then \
