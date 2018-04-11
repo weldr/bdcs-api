@@ -1746,22 +1746,19 @@ instance FromJSON ComposeBody where
 
 -- | JSON status response
 data ComposeResponse = ComposeResponse {
-    crStatus :: Bool,                                                   -- ^ Success/Failure of the request
-    crBuildIDs :: [T.Text],                                             -- ^ UUID of the in-progress build
-    crErrors :: [T.Text]                                                -- ^ Errors
+    crStatus  :: Bool,                                                  -- ^ Success/Failure of the request
+    crBuildID :: T.Text                                                 -- ^ UUID of the in-progress build
 } deriving (Show, Eq)
 
 instance ToJSON ComposeResponse where
   toJSON ComposeResponse{..} = object [
-      "status"    .= crStatus
-    , "build_ids" .= crBuildIDs
-    , "errors"    .= crErrors ]
+      "status"   .= crStatus
+    , "build_id" .= crBuildID ]
 
 instance FromJSON ComposeResponse where
   parseJSON = withObject "/compose response" $ \o -> do
-    crStatus   <- o .: "status"
-    crBuildIDs <- o .: "build_ids"
-    crErrors   <- o .: "errors"
+    crStatus  <- o .: "status"
+    crBuildID <- o .: "build_id"
     return ComposeResponse{..}
 
 
@@ -1797,25 +1794,25 @@ compose cfg@ServerConfig{..} ComposeBody{..} test
                                      ciType=cbType }
 
             void $ atomicModifyIORef' cfgWorkQ (\ref -> (ref ++ [ci], ()))
-            return $ ComposeResponse True [T.pack $ show buildId] []
+            return $ ComposeResponse True (T.pack $ show buildId)
  where
     -- | Construct an error message for unsupported output selected
-    unsupportedOutput = createAPIError err400 False (
+    unsupportedOutput = createAPIError err400 False [
         concat ["compose: Invalid compose type (",
                   cs cbType,
                   "), must be one of ",
-                  cs $ T.intercalate "," supportedOutputs])
+                  cs $ T.intercalate "," supportedOutputs]]
 
     withRecipe :: GitLock -> Maybe T.Text -> T.Text -> (Recipe -> Handler ComposeResponse) -> Handler ComposeResponse
     withRecipe lock branch name fn =
         liftIO (getRecipeInfo lock (defaultBranch $ fmap cs branch) name) >>= \case
-            Left err          -> return $ ComposeResponse False [] [T.pack err]
+            Left err          -> throwError $ createAPIError err400 False [err]
             Right (_, recipe) -> fn recipe
 
     withFrozenRecipe :: Maybe T.Text -> T.Text -> (Recipe -> Handler ComposeResponse) -> Handler ComposeResponse
     withFrozenRecipe branch name fn =
         recipesFreeze cfg (fmap cs branch) (cs name) >>= \case
-            RecipesFreezeResponse [] errs      -> return $ ComposeResponse False [] (map (T.pack . show) errs)
+            RecipesFreezeResponse [] errs      -> throwError $ createAPIError err400 False (map show errs)
             RecipesFreezeResponse (frozen:_) _ -> fn frozen
 
 -- | The JSON response for /compose/types
@@ -2100,10 +2097,10 @@ composeLogs :: KnownSymbol h => ServerConfig -> String -> Handler (Headers '[Hea
 composeLogs ServerConfig{..} uuid = do
     result <- liftIO $ runExceptT $ mkComposeStatus cfgResultsDir (cs uuid)
     case result of
-        Left _                  -> throwError $ createAPIError err400 False ("compose_logs: " ++ cs uuid ++ " is not a valid build uuid")
+        Left _                  -> throwError $ createAPIError err400 False ["compose_logs: " ++ cs uuid ++ " is not a valid build uuid"]
         Right ComposeStatus{..} ->
             if not (queueStatusEnded csQueueStatus)
-            then throwError $ createAPIError err400 False ("compose_logs: Build " ++ cs uuid ++ " not in FINISHED or FAILED state.")
+            then throwError $ createAPIError err400 False ["compose_logs: Build " ++ cs uuid ++ " not in FINISHED or FAILED state."]
             else do
                 let composeResultsDir = cfgResultsDir </> cs uuid
                     logFiles          = ["compose.log"]
