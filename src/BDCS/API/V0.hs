@@ -51,8 +51,6 @@ module BDCS.API.V0(BuildInfo(..),
                RecipesDiffResponse(..),
                RecipesDepsolveResponse(..),
                RecipesFreezeResponse(..),
-               RecipesStatusResponse(..),
-               RecipesAPIError(..),
                RecipeChanges(..),
                RecipeDependencies(..),
                SourceInfo(..),
@@ -65,7 +63,7 @@ import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsg
 import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Customization(processCustomization)
 import           BDCS.API.Depsolve
-import           BDCS.API.Error(createAPIError)
+import           BDCS.API.Error(APIResponse(..), createAPIError)
 import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded, queueStatusText)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
@@ -97,7 +95,7 @@ import           Data.List(find, sortBy)
 import           Data.List.Extra(nubOrd)
 import           Data.Maybe(fromMaybe, mapMaybe)
 import           Data.String(IsString)
-import           Data.String.Conversions(cs)
+import           Data.String.Conversions(ConvertibleStrings, cs)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           Data.Time.Clock(UTCTime)
@@ -122,31 +120,6 @@ defaultBranch = maybe "master" cs
 filterMapComposeStatus :: MonadIO m => FilePath -> [T.Text] -> m [ComposeStatus]
 filterMapComposeStatus dir lst = rights <$> mapM (liftIO . runExceptT . mkComposeStatus dir) lst
 
--- | RecipesAPIError is used to report errors with the /recipes/ routes
---
--- This is converted to a JSON error response that is used in the API responses
---
--- > {
--- >     "recipe": "unknown-recipe",
--- >     "msg": "unknown-recipe.toml is not present on branch master"
--- > }
-data RecipesAPIError = RecipesAPIError
-  {  raeRecipe  :: T.Text,
-     raeMsg     :: T.Text
-  } deriving (Eq, Show)
-
-instance ToJSON RecipesAPIError where
-  toJSON RecipesAPIError{..} = object [
-      "recipe".= raeRecipe
-    , "msg"   .= raeMsg ]
-
-instance FromJSON RecipesAPIError where
-  parseJSON = withObject "API Error" $ \o -> do
-    raeRecipe <- o .: "recipe"
-    raeMsg    <- o .: "msg"
-    return RecipesAPIError{..}
-
-
 -- These are the API routes. This is not documented in haddock because it doesn't format it correctly
 type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                   :> QueryParam "limit" Int :> Get '[JSON] ProjectsListResponse
@@ -166,23 +139,23 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                         :> Get '[JSON] RecipesChangesResponse
         :<|> "blueprints"  :> "new" :> ReqBody '[JSON, TOML] Recipe
                                     :> QueryParam "branch" String
-                                    :> Post '[JSON] RecipesStatusResponse
+                                    :> Post '[JSON] APIResponse
         :<|> "blueprints"  :> "delete" :> Capture "recipe" String
                                        :> QueryParam "branch" String
-                                       :> Delete '[JSON] RecipesStatusResponse
+                                       :> Delete '[JSON] APIResponse
         :<|> "blueprints"  :> "undo" :> Capture "recipe" String
                                      :> Capture "commit" String
                                      :> QueryParam "branch" String
-                                     :> Post '[JSON] RecipesStatusResponse
+                                     :> Post '[JSON] APIResponse
         :<|> "blueprints"  :> "workspace" :> ReqBody '[JSON, TOML] Recipe
                                           :> QueryParam "branch" String
-                                          :> Post '[JSON] RecipesStatusResponse
+                                          :> Post '[JSON] APIResponse
         :<|> "blueprints"  :> "workspace" :> Capture "recipe" String
                                           :> QueryParam "branch" String
-                                          :> Delete '[JSON] RecipesStatusResponse
+                                          :> Delete '[JSON] APIResponse
         :<|> "blueprints"  :> "tag" :> Capture "recipe" String
                                     :> QueryParam "branch" String
-                                    :> Post '[JSON] RecipesStatusResponse
+                                    :> Post '[JSON] APIResponse
         :<|> "blueprints"  :> "diff" :> Capture "recipe" String
                                      :> Capture "from_commit" String
                                      :> Capture "to_commit" String
@@ -292,6 +265,9 @@ instance FromJSON RecipesListResponse where
     rlrTotal   <- o .: "total"
     return RecipesListResponse{..}
 
+errorMessage :: (ConvertibleStrings a String, ConvertibleStrings b String) => a -> b -> String
+errorMessage name msg = cs name ++ ": " ++ cs msg
+
 -- | /api/v0/blueprints/list
 -- List the names of the available blueprints
 --
@@ -351,7 +327,7 @@ instance FromJSON WorkspaceChanges where
 data RecipesInfoResponse = RecipesInfoResponse {
     rirChanges  :: [WorkspaceChanges],                                  -- ^ Workspace status for each blueprint
     rirRecipes  :: [Recipe],                                            -- ^ The Recipe record
-    rirErrors   :: [RecipesAPIError]                                    -- ^ Errors reading the blueprint
+    rirErrors   :: [String]                                             -- ^ Errors reading the blueprint
 } deriving (Show, Eq)
 
 instance ToJSON RecipesInfoResponse where
@@ -441,7 +417,7 @@ recipesInfo ServerConfig{..} branch recipe_names = liftIO $ RWL.withRead (gitRep
     (changes, recipes, errors) <- allRecipeInfo recipe_name_list [] [] []
     return $ RecipesInfoResponse changes recipes errors
   where
-    allRecipeInfo :: [T.Text] -> [WorkspaceChanges] -> [Recipe] -> [RecipesAPIError] -> IO ([WorkspaceChanges], [Recipe], [RecipesAPIError])
+    allRecipeInfo :: [T.Text] -> [WorkspaceChanges] -> [Recipe] -> [String] -> IO ([WorkspaceChanges], [Recipe], [String])
     allRecipeInfo [] _ _ _ = return ([], [], [])
     allRecipeInfo [recipe_name] changes_list recipes_list errors_list =
                   oneRecipeInfo recipe_name changes_list recipes_list errors_list
@@ -449,14 +425,14 @@ recipesInfo ServerConfig{..} branch recipe_names = liftIO $ RWL.withRead (gitRep
                   (new_changes, new_recipes, new_errors) <- oneRecipeInfo recipe_name changes_list recipes_list errors_list
                   allRecipeInfo xs new_changes new_recipes new_errors
 
-    oneRecipeInfo :: T.Text -> [WorkspaceChanges] -> [Recipe] -> [RecipesAPIError] -> IO ([WorkspaceChanges], [Recipe], [RecipesAPIError])
+    oneRecipeInfo :: T.Text -> [WorkspaceChanges] -> [Recipe] -> [String] -> IO ([WorkspaceChanges], [Recipe], [String])
     oneRecipeInfo recipe_name changes_list recipes_list errors_list = do
         result <- getRecipeInfo cfgRepoLock (defaultBranch branch) recipe_name
         return (new_changes result, new_recipes result, new_errors result)
       where
-        new_errors :: Either String (Bool, Recipe) -> [RecipesAPIError]
-        new_errors (Left err)  = RecipesAPIError recipe_name (T.pack err):errors_list
-        new_errors (Right _) = errors_list
+        new_errors :: Either String (Bool, Recipe) -> [String]
+        new_errors (Left err) = errorMessage recipe_name err:errors_list
+        new_errors (Right _)  = errors_list
 
         new_changes :: Either String (Bool, Recipe) -> [WorkspaceChanges]
         new_changes (Right (changed, _)) = WorkspaceChanges recipe_name changed:changes_list
@@ -519,7 +495,7 @@ instance FromJSON RecipeChanges where
 -- The JSON response for /blueprints/changes
 data RecipesChangesResponse = RecipesChangesResponse {
     rcrRecipes  :: [RecipeChanges],                                     -- ^ Changes for each blueprint
-    rcrErrors   :: [RecipesAPIError],                                   -- ^ Any errors for the requested changes
+    rcrErrors   :: [String],                                            -- ^ Any errors for the requested changes
     rcrOffset   :: Int,                                                 -- ^ Pagination offset
     rcrLimit    :: Int                                                  -- ^ Pagination limit
 } deriving (Show, Eq)
@@ -608,7 +584,7 @@ recipesChanges ServerConfig{..} mbranch recipe_names moffset mlimit = liftIO $ R
     (changes, errors) <- allRecipeChanges recipe_name_list [] []
     return $ RecipesChangesResponse changes errors offset limit
   where
-    allRecipeChanges :: [T.Text] -> [RecipeChanges] -> [RecipesAPIError] -> IO ([RecipeChanges], [RecipesAPIError])
+    allRecipeChanges :: [T.Text] -> [RecipeChanges] -> [String] -> IO ([RecipeChanges], [String])
     allRecipeChanges [] _ _ = return ([], [])
     allRecipeChanges [recipe_name] changes_list errors_list =
                      oneRecipeChange recipe_name changes_list errors_list
@@ -616,7 +592,7 @@ recipesChanges ServerConfig{..} mbranch recipe_names moffset mlimit = liftIO $ R
                      (new_changes, new_errors) <- oneRecipeChange recipe_name changes_list errors_list
                      allRecipeChanges xs new_changes new_errors
 
-    oneRecipeChange :: T.Text -> [RecipeChanges] -> [RecipesAPIError] -> IO ([RecipeChanges], [RecipesAPIError])
+    oneRecipeChange :: T.Text -> [RecipeChanges] -> [String] -> IO ([RecipeChanges], [String])
     oneRecipeChange recipe_name changes_list errors_list = do
         result <- catch_recipe_changes recipe_name
         return (new_changes result, new_errors result)
@@ -625,8 +601,8 @@ recipesChanges ServerConfig{..} mbranch recipe_names moffset mlimit = liftIO $ R
         new_changes (Right changes) = RecipeChanges recipe_name (applyLimits limit offset changes) (length $ applyLimits limit offset changes):changes_list
         new_changes (Left _)        = changes_list
 
-        new_errors :: Either String [CommitDetails] -> [RecipesAPIError]
-        new_errors (Left err) = RecipesAPIError recipe_name (T.pack err):errors_list
+        new_errors :: Either String [CommitDetails] -> [String]
+        new_errors (Left err) = errorMessage recipe_name err:errors_list
         new_errors (Right _)  = errors_list
 
     offset :: Int
@@ -640,24 +616,6 @@ recipesChanges ServerConfig{..} mbranch recipe_names moffset mlimit = liftIO $ R
         CE.catches (Right <$> listRecipeCommits (gitRepo cfgRepoLock) (defaultBranch mbranch) recipe_name)
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
                     CE.Handler (\(e :: GError) -> return $ Left (show e))]
-
-
--- | JSON status response
-data RecipesStatusResponse = RecipesStatusResponse {
-    rsrStatus :: Bool,                                                  -- ^ Success/Failure of the request
-    rsrErrors :: [RecipesAPIError]                                      -- ^ Errors
-} deriving (Show, Eq)
-
-instance ToJSON RecipesStatusResponse where
-  toJSON RecipesStatusResponse{..} = object [
-      "status" .= rsrStatus
-    , "errors" .= rsrErrors ]
-
-instance FromJSON RecipesStatusResponse where
-  parseJSON = withObject "/blueprints/* status response" $ \o -> do
-    rsrStatus <- o .: "status"
-    rsrErrors <- o .: "errors"
-    return RecipesStatusResponse{..}
 
 
 -- | POST /api/v0/blueprints/new
@@ -677,12 +635,12 @@ instance FromJSON RecipesStatusResponse where
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesNew :: ServerConfig -> Maybe String -> Recipe -> Handler RecipesStatusResponse
-recipesNew ServerConfig{..} mbranch recipe = liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) $ do
-    result <- catch_recipe_new
+recipesNew :: ServerConfig -> Maybe String -> Recipe -> Handler APIResponse
+recipesNew ServerConfig{..} mbranch recipe = do
+    result <- liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) catch_recipe_new
     case result of
-        Left err -> return $ RecipesStatusResponse False [RecipesAPIError "Unknown" (T.pack err)]
-        Right _  -> return $ RecipesStatusResponse True []
+        Left err -> throwError $ createAPIError err400 False [errorMessage ("Unknown:" :: String) err]
+        Right _  -> return $ APIResponse True []
   where
     catch_recipe_new :: IO (Either String Git.OId)
     catch_recipe_new =
@@ -704,12 +662,12 @@ recipesNew ServerConfig{..} mbranch recipe = liftIO $ RWL.withWrite (gitRepoLock
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesDelete :: ServerConfig -> Maybe String -> String -> Handler RecipesStatusResponse
-recipesDelete ServerConfig{..} mbranch recipe_name = liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) $ do
-    result <- catch_recipe_delete
+recipesDelete :: ServerConfig -> Maybe String -> String -> Handler APIResponse
+recipesDelete ServerConfig{..} mbranch recipe_name = do
+    result <- liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) catch_recipe_delete
     case result of
-        Left err -> return $ RecipesStatusResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
-        Right _  -> return $ RecipesStatusResponse True []
+        Left err -> throwError $ createAPIError err400 False [errorMessage recipe_name err]
+        Right _  -> return $ APIResponse True []
   where
     catch_recipe_delete :: IO (Either String Git.OId)
     catch_recipe_delete =
@@ -732,12 +690,12 @@ recipesDelete ServerConfig{..} mbranch recipe_name = liftIO $ RWL.withWrite (git
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesUndo :: ServerConfig -> Maybe String -> String -> String -> Handler RecipesStatusResponse
-recipesUndo ServerConfig{..} mbranch recipe_name commit = liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) $ do
-    result <- catch_recipe_undo
+recipesUndo :: ServerConfig -> Maybe String -> String -> String -> Handler APIResponse
+recipesUndo ServerConfig{..} mbranch recipe_name commit = do
+    result <- liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) catch_recipe_undo
     case result of
-        Left err -> return $ RecipesStatusResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
-        Right _  -> return $ RecipesStatusResponse True []
+        Left err -> throwError $ createAPIError err400 False [errorMessage recipe_name err]
+        Right _  -> return $ APIResponse True []
   where
     catch_recipe_undo :: IO (Either String Git.OId)
     catch_recipe_undo =
@@ -762,12 +720,12 @@ recipesUndo ServerConfig{..} mbranch recipe_name commit = liftIO $ RWL.withWrite
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesWorkspace :: ServerConfig -> Maybe String -> Recipe -> Handler RecipesStatusResponse
-recipesWorkspace ServerConfig{..} mbranch recipe = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
-    result <- catch_recipe_ws
+recipesWorkspace :: ServerConfig -> Maybe String -> Recipe -> Handler APIResponse
+recipesWorkspace ServerConfig{..} mbranch recipe = do
+    result <- liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) catch_recipe_ws
     case result of
-        Left err -> return $ RecipesStatusResponse False [RecipesAPIError "Unknown" (T.pack err)]
-        Right _  -> return $ RecipesStatusResponse True []
+        Left err -> throwError $ createAPIError err400 False [errorMessage ("Unknown: " :: String) err]
+        Right _  -> return $ APIResponse True []
   where
     catch_recipe_ws :: IO (Either String ())
     catch_recipe_ws =
@@ -789,12 +747,12 @@ recipesWorkspace ServerConfig{..} mbranch recipe = liftIO $ RWL.withRead (gitRep
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesWorkspaceDelete :: ServerConfig -> Maybe String -> String -> Handler RecipesStatusResponse
-recipesWorkspaceDelete ServerConfig{..} mbranch recipe_name = liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) $ do
-    result <- catch_recipe_delete
+recipesWorkspaceDelete :: ServerConfig -> Maybe String -> String -> Handler APIResponse
+recipesWorkspaceDelete ServerConfig{..} mbranch recipe_name = do
+    result <-  liftIO $ RWL.withWrite (gitRepoLock cfgRepoLock) catch_recipe_delete
     case result of
-        Left err -> return $ RecipesStatusResponse False [RecipesAPIError (T.pack recipe_name) (T.pack err)]
-        Right _  -> return $ RecipesStatusResponse True []
+        Left err -> throwError $ createAPIError err400 False [errorMessage recipe_name err]
+        Right _  -> return $ APIResponse True []
   where
     catch_recipe_delete :: IO (Either String ())
     catch_recipe_delete =
@@ -818,12 +776,12 @@ recipesWorkspaceDelete ServerConfig{..} mbranch recipe_name = liftIO $ RWL.withW
 -- >     "status": true,
 -- >     "errors": []
 -- > }
-recipesTag :: ServerConfig -> Maybe String -> String -> Handler RecipesStatusResponse
-recipesTag ServerConfig{..} mbranch recipe_name = liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) $ do
-    result <- catch_recipe_tag
+recipesTag :: ServerConfig -> Maybe String -> String -> Handler APIResponse
+recipesTag ServerConfig{..} mbranch recipe_name =  do
+    result <- liftIO $ RWL.withRead (gitRepoLock cfgRepoLock) catch_recipe_tag
     case result of
-        Left  err    -> return $ RecipesStatusResponse False [RecipesAPIError "Unknown" (T.pack err)]
-        Right status -> return $ RecipesStatusResponse status []
+        Left  err    -> throwError $ createAPIError err400 False ["Unknown: " ++ cs err]
+        Right status -> return $ APIResponse status []
   where
     catch_recipe_tag :: IO (Either String Bool)
     catch_recipe_tag =
@@ -1001,7 +959,7 @@ instance FromJSON RecipeDependencies where
 -- | The JSON response for /blueprints/depsolve/<blueprints>
 data RecipesDepsolveResponse = RecipesDepsolveResponse {
     rdrRecipes  :: [RecipeDependencies],                             -- ^ List of blueprints and their dependencies
-    rdrErrors   :: [RecipesAPIError]                                 -- ^ Errors reading the blueprint
+    rdrErrors   :: [String]                                          -- ^ Errors reading the blueprint
 } deriving (Show, Eq)
 
 instance ToJSON RecipesDepsolveResponse where
@@ -1134,7 +1092,7 @@ recipesDepsolve ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (g
     (recipes, errors) <- liftIO $ allRecipeDeps recipe_name_list
     return $ RecipesDepsolveResponse recipes errors
   where
-    allRecipeDeps :: [T.Text] -> IO ([RecipeDependencies], [RecipesAPIError])
+    allRecipeDeps :: [T.Text] -> IO ([RecipeDependencies], [String])
     allRecipeDeps recipeNames = do
         -- Convert the list of names into a list of Recipes.  Also collect a list of errors
         -- that occurred while doing the conversion.  We don't simply stop on the first error.
@@ -1152,25 +1110,24 @@ recipesDepsolve ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (g
         let (depErrors, deps) = partitionEithers results'
         return (deps, errors ++ depErrors)
 
-    toRecipesAPIError :: Recipe -> T.Text -> RecipesAPIError
-    toRecipesAPIError Recipe{..} msg =
-        RecipesAPIError { raeRecipe=cs rName, raeMsg=msg }
+    toRecipesAPIError :: Recipe -> T.Text -> String
+    toRecipesAPIError Recipe{..} msg = errorMessage rName msg
 
     toRecipeDependencies :: Recipe -> ([PackageNEVRA], [PackageNEVRA]) -> RecipeDependencies
     toRecipeDependencies recipe (deps, mods) =
         RecipeDependencies { rdRecipe=recipe, rdDependencies=deps, rdModules=mods }
 
-    getOneRecipeInfo :: GitLock -> T.Text -> T.Text -> IO (Either RecipesAPIError Recipe)
+    getOneRecipeInfo :: GitLock -> T.Text -> T.Text -> IO (Either String Recipe)
     getOneRecipeInfo lock branch name =
         getRecipeInfo lock branch name >>= \case
-            Left err     -> return $ Left RecipesAPIError { raeRecipe=name, raeMsg=cs err }
+            Left err     -> return $ Left $ errorMessage name err
             Right (_, r) -> return $ Right r
 
 
 -- | The JSON response for /blueprints/freeze/<blueprints>
 data RecipesFreezeResponse = RecipesFreezeResponse {
     rfrRecipes  :: [Recipe],                                         -- ^ Recipes with exact versions
-    rfrErrors   :: [RecipesAPIError]                                 -- ^ Errors reading the blueprint
+    rfrErrors   :: [String]                                          -- ^ Errors reading the blueprint
 } deriving (Show, Eq)
 
 instance ToJSON RecipesFreezeResponse where
@@ -1244,7 +1201,7 @@ recipesFreeze ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (git
     (recipes, errors) <- liftIO $ allRecipeDeps recipe_name_list
     return $ RecipesFreezeResponse recipes errors
   where
-    allRecipeDeps :: [T.Text] -> IO ([Recipe], [RecipesAPIError])
+    allRecipeDeps :: [T.Text] -> IO ([Recipe], [String])
     allRecipeDeps recipeNames = do
         -- Convert the list of names into a list of Recipes.  Also collect a list of errors
         -- that occurred while doing the conversion.  We don't simply stop on the first error.
@@ -1264,14 +1221,13 @@ recipesFreeze ServerConfig{..} mbranch recipe_names = liftIO $ RWL.withRead (git
         let (depErrors, recipes') = partitionEithers results'
         return (recipes', errors ++ depErrors)
 
-    toRecipesAPIError :: Recipe -> T.Text -> RecipesAPIError
-    toRecipesAPIError Recipe{..} msg =
-        RecipesAPIError { raeRecipe=cs rName, raeMsg=msg }
+    toRecipesAPIError :: Recipe -> T.Text -> String
+    toRecipesAPIError Recipe{..} msg = errorMessage rName msg
 
-    getOneRecipeInfo :: GitLock -> T.Text -> T.Text -> IO (Either RecipesAPIError Recipe)
+    getOneRecipeInfo :: GitLock -> T.Text -> T.Text -> IO (Either String Recipe)
     getOneRecipeInfo lock branch name =
         getRecipeInfo lock branch name >>= \case
-            Left err     -> return $ Left RecipesAPIError { raeRecipe=name, raeMsg=cs err }
+            Left err     -> return $ Left $ errorMessage name err
             Right (_, r) -> return $ Right r
 
     -- Replace the recipe's module and package versions with the EVR selected by depsolving

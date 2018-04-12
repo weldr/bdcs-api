@@ -21,6 +21,7 @@ module ServerSpec
   where
 
 import           BDCS.API.Customization(RecipeCustomization(..), RecipeSshKey(..), emptyCustomization)
+import           BDCS.API.Error(APIResponse(..))
 import           BDCS.API.Recipe(Recipe(..), RecipeModule(..))
 import           BDCS.API.Recipes(CommitDetails(..), RecipeDiffType(..), RecipeDiffEntry(..))
 import           BDCS.API.Server
@@ -56,12 +57,12 @@ getProjectsDepsolve :: String -> ClientM ProjectsDepsolveResponse
 getRecipes :: Maybe Int -> Maybe Int -> Maybe String -> ClientM RecipesListResponse
 getRecipesInfo :: String -> Maybe String -> ClientM RecipesInfoResponse
 getRecipesChanges :: String -> Maybe Int -> Maybe Int -> Maybe String -> ClientM RecipesChangesResponse
-postRecipesNew :: Recipe -> Maybe String -> ClientM RecipesStatusResponse
-deleteRecipes :: String -> Maybe String -> ClientM RecipesStatusResponse
-postRecipesUndo :: String -> String -> Maybe String -> ClientM RecipesStatusResponse
-postRecipesWorkspace :: Recipe -> Maybe String -> ClientM RecipesStatusResponse
-deleteRecipesWorkspace :: String -> Maybe String -> ClientM RecipesStatusResponse
-postRecipesTag :: String -> Maybe String -> ClientM RecipesStatusResponse
+postRecipesNew :: Recipe -> Maybe String -> ClientM APIResponse
+deleteRecipes :: String -> Maybe String -> ClientM APIResponse
+postRecipesUndo :: String -> String -> Maybe String -> ClientM APIResponse
+postRecipesWorkspace :: Recipe -> Maybe String -> ClientM APIResponse
+deleteRecipesWorkspace :: String -> Maybe String -> ClientM APIResponse
+postRecipesTag :: String -> Maybe String -> ClientM APIResponse
 getRecipesDiff :: String -> String -> String -> Maybe String -> ClientM RecipesDiffResponse
 getRecipesDepsolve :: String -> Maybe String -> ClientM RecipesDepsolveResponse
 getRecipesFreeze :: String -> Maybe String -> ClientM RecipesFreezeResponse
@@ -93,7 +94,7 @@ recipesListResponse2 :: RecipesListResponse
 recipesListResponse2 = RecipesListResponse ["http-server"] 1 1 4
 
 missingRecipeResponse :: RecipesInfoResponse
-missingRecipeResponse = RecipesInfoResponse [] [] [RecipesAPIError "missing-recipe" "missing-recipe.toml is not present on branch master"]
+missingRecipeResponse = RecipesInfoResponse [] [] ["missing-recipe: missing-recipe.toml is not present on branch master"]
 
 httpserverRecipeResponse :: RecipesInfoResponse
 httpserverRecipeResponse =
@@ -153,10 +154,10 @@ errorRecipeResponse =
                            RecipeModule "php-mysql" "5.4.*"]
                           emptyCustomization
                         ]
-                        [RecipesAPIError "missing-recipe" "missing-recipe.toml is not present on branch master"]
+                        ["missing-recipe: missing-recipe.toml is not present on branch master"]
 
-recipesNewResponse :: RecipesStatusResponse
-recipesNewResponse = RecipesStatusResponse True []
+recipesNewResponse :: APIResponse
+recipesNewResponse = APIResponse True []
 
 aTestRecipe :: Recipe
 aTestRecipe = Recipe "A Test Recipe" (Just "0.0.1") "A simple recipe to use for testing"
@@ -183,7 +184,7 @@ recipesDepsolveResponse1 =
 
 recipesDepsolveResponse2 :: RecipesDepsolveResponse
 recipesDepsolveResponse2 =
-    RecipesDepsolveResponse [] [RecipesAPIError "unknown-recipe" "unknown-recipe.toml is not present on branch master"]
+    RecipesDepsolveResponse [] ["unknown-recipe: unknown-recipe.toml is not present on branch master"]
 
 recipesFreezeResponse1 :: RecipesFreezeResponse
 recipesFreezeResponse1 =
@@ -195,7 +196,7 @@ recipesFreezeResponse1 =
 
 recipesFreezeResponse2 :: RecipesFreezeResponse
 recipesFreezeResponse2 =
-    RecipesFreezeResponse [] [RecipesAPIError "unknown-recipe" "unknown-recipe.toml is not present on branch master"]
+    RecipesFreezeResponse [] ["unknown-recipe: unknown-recipe.toml is not present on branch master"]
 
 projectsDepsolveResponse1 :: ProjectsDepsolveResponse
 projectsDepsolveResponse1 =
@@ -337,8 +338,8 @@ postMultipleChanges = allM newVersion [0..10]
     patchedVersion :: Integer -> String
     patchedVersion = printf "0.1.%d"
 
-    status_ok :: RecipesStatusResponse -> Bool
-    status_ok = rsrStatus
+    status_ok :: APIResponse -> Bool
+    status_ok = arjStatus
 
 -- If it has 0 errors, 1 change named http-server, 0 offset and a limit of 20 it passes
 recipesChangesTest1 :: ClientM Bool
@@ -415,7 +416,7 @@ recipesDeleteTest = do
 
     -- Delete it from the list
     delete_recipe :: ClientM Bool
-    delete_recipe = rsrStatus <$> deleteRecipes "A Test Recipe" Nothing
+    delete_recipe = arjStatus <$> deleteRecipes "A Test Recipe" Nothing
 
     -- Is it NOT in the list?
     recipe_not_in_list = do
@@ -430,14 +431,14 @@ recipesUndoTest = do
     let commit = cdCommit (rcChange (rcrRecipes response_1 !! 0) !! 1)
 
     -- Revert to a previous commit
-    rsrStatus <$> postRecipesUndo "A Test Recipe" (T.unpack commit) Nothing
+    arjStatus <$> postRecipesUndo "A Test Recipe" (T.unpack commit) Nothing
 
 -- | Check that writing to the workspace storage works
 recipesWorkspaceTest :: ClientM Bool
 recipesWorkspaceTest = status_ok <$> postRecipesWorkspace aTestRecipe {rDescription = "A workspace only recipe"} Nothing
   where
-    status_ok :: RecipesStatusResponse -> Bool
-    status_ok = rsrStatus
+    status_ok :: APIResponse -> Bool
+    status_ok = arjStatus
 
 -- | Test the various /recipes/diff/ methods
 recipesDiffTest :: ClientM Bool
@@ -552,7 +553,7 @@ spec = do
                 try env recipesWorkspaceTest `shouldReturn` True
 
             it "Tag the most recent commit of the recipe" $ \env ->
-                try env (postRecipesTag "A Test Recipe" Nothing) `shouldReturn` RecipesStatusResponse True []
+                try env (postRecipesTag "A Test Recipe" Nothing) `shouldReturn` APIResponse True []
 
             it "Get the recipe differences" $ \env ->
                 try env recipesDiffTest `shouldReturn` True

@@ -19,7 +19,8 @@
 
 {-| Error functions for use with "BDCS.API"
 -}
-module BDCS.API.Error(createAPIError)
+module BDCS.API.Error(createAPIError,
+                      APIResponse(..))
   where
 
 import           Data.Aeson
@@ -37,19 +38,19 @@ import           Servant hiding (Header)
 -- >     "errors": ["compose: Unsupported output type"]
 -- >     }
 -- > }
-data APIResponseJSON = APIResponseJSON
+data APIResponse = APIResponse
     { arjStatus :: Bool
     , arjErrors :: [String]
-    } deriving Show
+    } deriving (Show, Eq)
 
-instance FromJSON APIResponseJSON where
+instance FromJSON APIResponse where
   parseJSON = withObject "API Response JSON" $ \o -> do
     arjStatus <- o .: "status"
     arjErrors <- o .: "errors"
-    return APIResponseJSON{..}
+    return APIResponse{..}
 
-instance ToJSON APIResponseJSON where
-  toJSON APIResponseJSON{..} = object
+instance ToJSON APIResponse where
+  toJSON APIResponse{..} = object
     [ "status" .= arjStatus
     , "errors" .= arjErrors
     ]
@@ -63,7 +64,7 @@ createAPIError :: ServantErr -> Bool -> [String] -> ServantErr
 createAPIError base status messages = base { errBody=apiError, errHeaders=[jsonContentHdr] }
   where
     apiError :: C8.ByteString
-    apiError = encode $ toJSON $ APIResponseJSON status messages
+    apiError = encode $ toJSON $ APIResponse status messages
 
     jsonContentHdr :: Header
     jsonContentHdr = ("Content-Type", "application/json")
