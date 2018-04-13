@@ -6,7 +6,7 @@ sandbox:
 	# Delete the sandbox if it already exists - The build-and-test target mounts
 	# the source directory into the container.  If a sandbox already exists, it
 	# can result in some pretty bizarre errors when trying to install deps.
-	-if [ -d .cabal-sandbox ]; then \
+	-if [ -z "$$TRAVIS" ] && [ -d .cabal-sandbox ]; then \
 		rm -r .cabal-sandbox cabal.sandbox.config; \
 	fi
 	cabal clean
