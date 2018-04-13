@@ -35,7 +35,7 @@ library
     -- other-extensions:
     build-depends:      aeson >= 1.0.0.0 && < 1.4.0.0,
                         base >= 4.9 && < 5.0,
-                        bdcs >= 0.3.1,
+                        bdcs >= 0.4.0,
                         bifunctors,
                         bytestring >= 0.10 && < 0.11,
                         concurrent-extra >= 0.7.0 && < 0.8,
@@ -96,7 +96,7 @@ test-suite spec
   hs-source-dirs:       tests
   build-depends:        base >= 4.9 && < 5.0,
                         aeson >= 1.0.0.0 && < 1.4.0.0,
-                        bdcs >= 0.3.0,
+                        bdcs >= 0.4.0,
                         bdcs-api,
                         bytestring >= 0.10 && < 0.11,
                         cond >= 0.4.1.1 && < 0.5.0.0,
