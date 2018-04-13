@@ -38,8 +38,9 @@ module BDCS.API.Compose(ComposeInfo(..),
 import           BDCS.API.Depsolve(PackageNEVRA(..), depsolveRecipe)
 import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded, queueStatusText, queueStatusFromText)
 import           BDCS.API.Recipe(Recipe(..), parseRecipe)
-import           BDCS.Export.Customize(Customization)
 import           BDCS.Export(exportAndCustomize)
+import           BDCS.Export.Customize(Customization)
+import           BDCS.Export.Types(ExportType)
 import           BDCS.Utils.Either(maybeToEither)
 import           Control.Conditional(ifM)
 import qualified Control.Exception as CE
@@ -64,7 +65,7 @@ data ComposeInfo = ComposeInfo
   ,  ciRecipe     :: Recipe                                     -- ^ The recipe being built
   ,  ciResultsDir :: FilePath                                   -- ^ Directory containing the compose and other files
   ,  ciCustom     :: [Customization]                            -- ^ Customizations to perform on the items in the compose
-  ,  ciType       :: T.Text                                     -- ^ Build type (tar, etc.)
+  ,  ciType       :: ExportType                                 -- ^ Build type (tar, etc.)
   } deriving (Eq, Show)
 
 data ComposeStatus = ComposeStatus {
@@ -136,7 +137,7 @@ compose bdcs pool ComposeInfo{..} = do
         Right (nevras, _) -> do let things = map pkgString nevras
                                 logInfoN $ "Exporting packages: " `T.append` T.intercalate " " things
 
-                                runExceptT (runResourceT $ runSqlPool (exportAndCustomize bdcs ciDest things ciCustom) pool) >>= \case
+                                runExceptT (runResourceT $ runSqlPool (exportAndCustomize bdcs ciDest ciType things ciCustom) pool) >>= \case
                                     Left e  -> logErrorN (cs e) >> logStatus QFailed "Compose failed on"
                                     Right _ -> logStatus QFinished "Compose finished on"
  where

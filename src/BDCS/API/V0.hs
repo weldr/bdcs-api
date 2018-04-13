@@ -72,7 +72,7 @@ import           BDCS.API.Utils(GitLock(..), applyLimits, argify, caseInsensitiv
 import           BDCS.API.Workspace
 import           BDCS.DB
 import           BDCS.Builds(findBuilds, getBuild)
-import           BDCS.Export.Utils(supportedOutputs)
+import           BDCS.Export.Types(exportTypeFromText, exportTypeText, supportedExportTypes)
 import           BDCS.Groups(getGroupsLike)
 import           BDCS.Projects(findProject, getProject, getProjectsLike)
 import           BDCS.Sources(findSources, getSource)
@@ -114,6 +114,13 @@ import           System.FilePath.Posix((</>))
 
 defaultBranch :: Maybe String -> T.Text
 defaultBranch = maybe "master" cs
+
+unsupportedOutputMsg :: T.Text -> T.Text
+unsupportedOutputMsg ty = T.concat [
+    "Invalid compose type (",
+    ty,
+    "), must be one of ",
+    T.intercalate ", " (map exportTypeText supportedExportTypes)]
 
 -- Given a list of UUIDs, run mkComposeStatus on all of them and return only the results that
 -- did not have any errors (like, from file IO).
@@ -1721,10 +1728,9 @@ instance FromJSON ComposeResponse where
 -- | POST /api/v0/compose
 -- Start a compose.
 compose :: ServerConfig -> ComposeBody -> Maybe Int -> Handler ComposeResponse
-compose cfg@ServerConfig{..} ComposeBody{..} test
-    | cbType `notElem` supportedOutputs = throwError unsupportedOutput
-    | otherwise =
-    withRecipe cfgRepoLock cbBranch cbName $ \recipe -> do
+compose cfg@ServerConfig{..} ComposeBody{..} test = case exportTypeFromText cbType of
+    Nothing -> throwError unsupportedOutput
+    Just ty -> withRecipe cfgRepoLock cbBranch cbName $ \recipe -> do
         buildId <- liftIO nextRandom
         let resultsDir = cfgResultsDir </> show buildId
         liftIO $ do
@@ -1747,17 +1753,13 @@ compose cfg@ServerConfig{..} ComposeBody{..} test
                                      ciRecipe=recipe,
                                      ciResultsDir=resultsDir,
                                      ciCustom=customActions,
-                                     ciType=cbType }
+                                     ciType=ty }
 
             void $ atomicModifyIORef' cfgWorkQ (\ref -> (ref ++ [ci], ()))
             return $ ComposeResponse True (T.pack $ show buildId)
  where
     -- | Construct an error message for unsupported output selected
-    unsupportedOutput = createAPIError err400 False [
-        concat ["compose: Invalid compose type (",
-                  cs cbType,
-                  "), must be one of ",
-                  cs $ T.intercalate "," supportedOutputs]]
+    unsupportedOutput = createAPIError err400 False [errorMessage ("compose" :: String) (unsupportedOutputMsg cbType)]
 
     withRecipe :: GitLock -> Maybe T.Text -> T.Text -> (Recipe -> Handler ComposeResponse) -> Handler ComposeResponse
     withRecipe lock branch name fn =
@@ -1816,7 +1818,7 @@ instance FromJSON ComposeTypesResponse where
 -- > }
 composeTypes :: Handler ComposeTypesResponse
 composeTypes =
-    return $ ComposeTypesResponse $ map (ComposeType True) supportedOutputs
+    return $ ComposeTypesResponse $ map (ComposeType True . exportTypeText) supportedExportTypes
 
 
 data ComposeQueueResponse = ComposeQueueResponse {
