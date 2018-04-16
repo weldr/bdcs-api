@@ -123,7 +123,7 @@ appCors = cors (const $ Just policy)
   where
     policy = simpleCorsResourcePolicy
              { corsRequestHeaders = ["Content-Type"]
-             , corsMethods = "PUT" : simpleMethods }
+             , corsMethods = "DELETE" : "PUT" : simpleMethods }
 
 -- | Servant 'Proxy'
 --
