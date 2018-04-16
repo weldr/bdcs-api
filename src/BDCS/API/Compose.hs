@@ -139,7 +139,8 @@ compose bdcs pool ComposeInfo{..} = do
 
                                 runExceptT (runResourceT $ runSqlPool (exportAndCustomize bdcs ciDest ciType things ciCustom) pool) >>= \case
                                     Left e  -> logErrorN (cs e) >> logStatus QFailed "Compose failed on"
-                                    Right _ -> logStatus QFinished "Compose finished on"
+                                    Right _ -> do liftIO $ TIO.writeFile (ciResultsDir </> "ARTIFACT") (cs ciDest)
+                                                  logStatus QFinished "Compose finished on"
  where
     pkgString :: PackageNEVRA -> T.Text
     pkgString PackageNEVRA{..} = T.concat [pnName, "-", pnVersion, "-", pnRelease, ".", pnArch]
