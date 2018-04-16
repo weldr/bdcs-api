@@ -194,6 +194,8 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                     :> Delete '[JSON] ComposeDeleteResponse
         :<|> "compose"  :> "logs"   :> Capture "uuid" String
                                     :> Get '[OctetStream] (Headers '[Header "Content-Disposition" String] LBS.ByteString)
+        :<|> "compose"  :> "image"  :> Capture "uuid" String
+                                    :> Get '[OctetStream] (Headers '[Header "Content-Disposition" String] LBS.ByteString)
 
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: ServerConfig -> Server V0API
@@ -222,6 +224,7 @@ v0ApiServer cfg = projectsListH
              :<|> composeStatusH
              :<|> composeDeleteH
              :<|> composeLogsH
+             :<|> composeImageH
   where
     projectsListH offset limit                       = projectsList cfg offset limit
     projectsInfoH project_names                      = projectsInfo cfg project_names
@@ -248,6 +251,7 @@ v0ApiServer cfg = projectsListH
     composeStatusH uuids                             = composeStatus cfg (T.splitOn "," $ cs uuids)
     composeDeleteH uuids                             = composeDelete cfg (T.splitOn "," $ cs uuids)
     composeLogsH uuid                                = composeLogs cfg uuid
+    composeImageH uuid                               = composeImage cfg (cs uuid)
 
 -- | The JSON response for /blueprints/list
 data RecipesListResponse = RecipesListResponse {
@@ -1840,7 +1844,7 @@ instance FromJSON ComposeQueueResponse where
 --
 -- Return the status of the build queue. It includes information about the builds waiting,
 -- and the build that is running.
--- 
+--
 -- > {
 -- >   "new": [
 -- >     {
@@ -2065,3 +2069,26 @@ composeLogs ServerConfig{..} uuid = do
 
                 tar <- liftIO $ Tar.pack composeResultsDir logFiles
                 return $ addHeader ("attachment; filename=" ++ uuid ++ "-logs.tar;") (Tar.write tar)
+
+
+-- | /api/v0/compose/image/<uuid>
+--
+-- Returns the output image from the build. The filename is set to the filename
+-- from the build with the UUID as a prefix. eg. UUID-root.tar.xz or UUID-boot.iso.
+composeImage :: KnownSymbol h => ServerConfig -> T.Text -> Handler (Headers '[Header h String] LBS.ByteString)
+composeImage ServerConfig{..} uuid = do
+    result <- liftIO $ runExceptT $ mkComposeStatus cfgResultsDir (cs uuid)
+    case result of
+        Left _                  -> throwError $ createAPIError err400 False ["compose_image: " ++ cs uuid ++ " is not a valid build uuid"]
+        Right ComposeStatus{..} ->
+            if not (queueStatusEnded csQueueStatus)
+            then throwError $ createAPIError err400 False ["compose_logs: Build " ++ cs uuid ++ " not in FINISHED or FAILED state."]
+            else liftIO (readArtifactFile $ cfgResultsDir </> cs uuid) >>= \case
+                Nothing -> throwError $ createAPIError err400 False ["compose_image: Build " ++ cs uuid ++ " is missing image file."]
+                Just fn -> do f <- liftIO $ LBS.readFile (cfgResultsDir </> fn)
+                              return $ addHeader ("attachment; filename=" ++ fn ++ ";") f
+ where
+    readArtifactFile :: FilePath -> IO (Maybe String)
+    readArtifactFile dir =
+        CE.catch (Just <$> readFile (dir </> "ARTIFACT"))
+                 (\(_ :: CE.IOException) -> return Nothing)
