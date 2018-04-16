@@ -2025,8 +2025,8 @@ instance ToJSON ComposeDeleteResponse where
 
 instance FromJSON ComposeDeleteResponse where
     parseJSON = withObject "/compose/delete response" $ \o ->
-        ComposeDeleteResponse <$> o .: "cdrErrors"
-                              <*> o .: "cdrUuids"
+        ComposeDeleteResponse <$> o .: "errors"
+                              <*> o .: "uuids"
 
 -- | DELETE /api/v0/compose/delete/<uuids>
 --

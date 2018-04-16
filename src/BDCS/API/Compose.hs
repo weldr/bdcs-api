@@ -93,18 +93,18 @@ instance FromJSON ComposeStatus where
                       <*> o .: "version"
 
 data UuidError = UuidError {
-    ueError :: T.Text,
+    ueMsg  :: T.Text,
     ueUuid :: T.Text
 } deriving (Show, Eq)
 
 instance ToJSON UuidError where
     toJSON UuidError{..} = object [
-        "error" .= ueError,
+        "msg"   .= ueMsg,
         "uuid"  .= ueUuid ]
 
 instance FromJSON UuidError where
     parseJSON = withObject "UUID error type" $ \o ->
-        UuidError <$> o .: "error"
+        UuidError <$> o .: "msg"
                   <*> o .: "uuid"
 
 data UuidStatus = UuidStatus {
@@ -156,15 +156,15 @@ compose bdcs pool ComposeInfo{..} = do
 deleteCompose :: FilePath -> T.Text -> IO (Either UuidError UuidStatus)
 deleteCompose dir uuid =
     liftIO (runExceptT $ mkComposeStatus dir uuid) >>= \case
-        Left _                  -> return $ Left UuidError { ueError="Not a valid build uuid", ueUuid=uuid }
+        Left _                  -> return $ Left UuidError { ueMsg="Not a valid build uuid", ueUuid=uuid }
         Right ComposeStatus{..} ->
             if not (queueStatusEnded csQueueStatus)
-            then return $ Left UuidError { ueError="Build not in FINISHED or FAILED", ueUuid=uuid }
+            then return $ Left UuidError { ueMsg="Build not in FINISHED or FAILED", ueUuid=uuid }
             else do
                 let path = dir </> cs uuid
                 CE.catch (do removePathForcibly path
                              return $ Right UuidStatus { usStatus=True, usUuid=uuid })
-                         (\(e :: CE.IOException) -> return $ Left UuidError { ueError=cs $ show e, ueUuid=uuid })
+                         (\(e :: CE.IOException) -> return $ Left UuidError { ueMsg=cs $ show e, ueUuid=uuid })
 
 getComposesWithStatus :: FilePath -> QueueStatus -> IO [ComposeStatus]
 getComposesWithStatus resultsDir status = do
