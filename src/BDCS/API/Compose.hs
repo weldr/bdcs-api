@@ -37,10 +37,10 @@ module BDCS.API.Compose(ComposeInfo(..),
 
 import           BDCS.API.Depsolve(PackageNEVRA(..), depsolveRecipe)
 import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded, queueStatusText, queueStatusFromText)
-import           BDCS.API.Recipe(Recipe(..), parseRecipe)
+import           BDCS.API.Recipe(Recipe(..), RecipeModule(..), parseRecipe)
 import           BDCS.Export(exportAndCustomize)
 import           BDCS.Export.Customize(Customization)
-import           BDCS.Export.Types(ExportType)
+import           BDCS.Export.Types(ExportType(..))
 import           BDCS.Utils.Either(maybeToEither)
 import           Control.Conditional(ifM)
 import qualified Control.Exception as CE
@@ -132,7 +132,14 @@ compose :: (MonadBaseControl IO m, MonadLoggerIO m, MonadThrow m) => FilePath ->
 compose bdcs pool ComposeInfo{..} = do
     logStatus QRunning "Compose started on"
 
-    depsolveRecipe pool ciRecipe >>= \case
+    -- If these packages weren't in the recipe to begin with, the user doesn't really care
+    -- about which version they get.  Add these required packages before depsolving and
+    -- move on.
+    let recipe = case ciType of
+                     ExportOstree -> foldl addRequiredPkg ciRecipe ["dracut", "kernel"]
+                     _            -> ciRecipe
+
+    depsolveRecipe pool recipe >>= \case
         Left e            -> logErrorN (cs e) >> logStatus QFailed "Compose failed on"
         Right (nevras, _) -> do let things = map pkgString nevras
                                 logInfoN $ "Exporting packages: " `T.append` T.intercalate " " things
@@ -142,6 +149,12 @@ compose bdcs pool ComposeInfo{..} = do
                                     Right _ -> do liftIO $ TIO.writeFile (ciResultsDir </> "ARTIFACT") (cs ciDest)
                                                   logStatus QFinished "Compose finished on"
  where
+    addRequiredPkg :: Recipe -> String -> Recipe
+    addRequiredPkg recipe pkg =
+        if not (any (\x -> pkg == rmName x) (rModules recipe))
+        then recipe { rModules=RecipeModule pkg "" : rModules recipe }
+        else recipe
+
     -- This function needs to spit out strings that BDCS.RPM.Utils.splitFilename
     -- knows how to take apart.  Be especially careful with the epoch part.  Otherwise,
     -- we won't be able to find packages in the database and will get depsolving errors.
