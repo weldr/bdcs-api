@@ -142,8 +142,12 @@ compose bdcs pool ComposeInfo{..} = do
                                     Right _ -> do liftIO $ TIO.writeFile (ciResultsDir </> "ARTIFACT") (cs ciDest)
                                                   logStatus QFinished "Compose finished on"
  where
+    -- This function needs to spit out strings that BDCS.RPM.Utils.splitFilename
+    -- knows how to take apart.  Be especially careful with the epoch part.  Otherwise,
+    -- we won't be able to find packages in the database and will get depsolving errors.
     pkgString :: PackageNEVRA -> T.Text
-    pkgString PackageNEVRA{..} = T.concat [pnName, "-", pnVersion, "-", pnRelease, ".", pnArch]
+    pkgString PackageNEVRA{pnEpoch=Nothing, ..} = T.concat [pnName, "-",                   pnVersion, "-", pnRelease, ".", pnArch]
+    pkgString PackageNEVRA{pnEpoch=Just e, ..}  = T.concat [pnName, "-", cs (show e), ":", pnVersion, "-", pnRelease, ".", pnArch]
 
     logStatus :: MonadLoggerIO m => QueueStatus -> T.Text -> m ()
     logStatus status msg = do
