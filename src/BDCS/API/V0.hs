@@ -457,17 +457,31 @@ recipesInfo ServerConfig{..} branch recipe_names = liftIO $ RWL.withRead (gitRep
 -- If there is neither workspace or git recipes then an error is returned.
 getRecipeInfo :: GitLock -> T.Text -> T.Text -> IO (Either String (Bool, Recipe))
 getRecipeInfo repoLock branch recipe_name = do
+    result <- getRecipeAndCommit repoLock branch recipe_name
+    case result of
+        Left e                       -> return $ Left e
+        Right (changed, (_, recipe)) -> return $ Right (changed, recipe)
+
+getRecipeAndCommit :: GitLock -> T.Text -> T.Text -> IO (Either String (Bool, (T.Text, Recipe)))
+getRecipeAndCommit repoLock branch recipe_name = do
     --   read the workspace recipe if it exists, errors are mapped to Nothing
     ws_recipe <- catch_ws_recipe
     --   read the git recipe (if it exists), Errors are mapped to Left
     git_recipe <- catch_git_recipe
 
     case (ws_recipe, git_recipe) of
-        (Nothing,     Left e)       -> return $ Left e
-        (Just recipe, Left _)       -> return $ Right (True, recipe)
-        (Nothing,     Right recipe) -> return $ Right (False, recipe)
-        (Just ws_r,   Right git_r)  -> return $ Right (ws_r /= git_r, ws_r)
+        (Nothing,     Left e)                    -> return $ Left e
+        (Just recipe, Left _)                    -> return $ Right (True, ("WORKSPACE", recipe))
+        (Nothing,     Right (commit_id, recipe)) -> return $ Right (False, (commit_id, recipe))
+        (Just ws_r,   Right (commit_id, git_r))  -> return $ commit_result ws_r commit_id git_r
   where
+    commit_result ws_r commit_id git_r = Right (changed, (commit, ws_r))
+      where
+        changed = ws_r /= git_r
+        commit = if changed
+                        then "WORKSPACE"
+                        else commit_id
+
     -- | Read the recipe from the workspace, and convert WorkspaceErrors into Nothing
     catch_ws_recipe :: IO (Maybe Recipe)
     catch_ws_recipe =
@@ -475,7 +489,7 @@ getRecipeInfo repoLock branch recipe_name = do
                  (\(_ :: WorkspaceError) -> return Nothing)
 
     -- | Read the recipe from git, and convert errors into Left descriptions of what went wrong.
-    catch_git_recipe :: IO (Either String Recipe)
+    catch_git_recipe :: IO (Either String (T.Text, Recipe))
     catch_git_recipe =
         CE.catches (readRecipeCommit (gitRepo repoLock) branch recipe_name Nothing)
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
@@ -918,17 +932,17 @@ recipesDiff ServerConfig{..} mbranch recipe_name from_commit to_commit = liftIO 
     case (old_recipe, new_recipe) of
         (Left _, _)     -> return $ RecipesDiffResponse []
         (_, Left _)     -> return $ RecipesDiffResponse []
-        (Right o, Right n) -> do
+        (Right (_, o), Right (_, n)) -> do
             let diff = recipeDiff o n
             return $ RecipesDiffResponse diff
   where
-    get_recipe :: String -> IO (Either String Recipe)
+    get_recipe :: String -> IO (Either String (T.Text, Recipe))
     get_recipe "NEWEST"    = catch_git_recipe (T.pack recipe_name) Nothing
     get_recipe "WORKSPACE" = do
         ws_recipe <- catch_ws_recipe (T.pack recipe_name)
         -- If there is no workspace recipe fall back to most recent commit
         case ws_recipe of
-            Just recipe -> return $ Right recipe
+            Just recipe -> return $ Right ("WORKSPACE", recipe)
             Nothing     -> get_recipe "NEWEST"
     get_recipe commit      = catch_git_recipe (T.pack recipe_name) (Just $ T.pack commit)
 
@@ -939,7 +953,7 @@ recipesDiff ServerConfig{..} mbranch recipe_name from_commit to_commit = liftIO 
                  (\(_ :: WorkspaceError) -> return Nothing)
 
     -- | Read the recipe from git, and convert errors into Left descriptions of what went wrong.
-    catch_git_recipe :: T.Text -> Maybe T.Text -> IO (Either String Recipe)
+    catch_git_recipe :: T.Text -> Maybe T.Text -> IO (Either String (T.Text, Recipe))
     catch_git_recipe name commit =
         CE.catches (readRecipeCommit (gitRepo cfgRepoLock) (defaultBranch mbranch) name commit)
                    [CE.Handler (\(e :: GitError) -> return $ Left (show e)),

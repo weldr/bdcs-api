@@ -262,15 +262,18 @@ writeCommit repo branch filename message content = do
 -- [@commit@]: Commit hash to read, or Nothing to read the HEAD
 --
 -- TODO Return the commit message too
-readCommit :: Git.Repository -> T.Text -> T.Text -> Maybe T.Text -> IO BS.ByteString
+readCommit :: Git.Repository -> T.Text -> T.Text -> Maybe T.Text -> IO (T.Text, BS.ByteString)
 readCommit repo branch filename Nothing = do
-    let spec = T.pack $ printf "%s:%s" branch filename
-    readCommitSpec repo spec
-readCommit repo _ filename commit = do
-    let spec = T.pack $ printf "%s:%s" (fromJust commit) filename
-    readCommitSpec repo spec
+    commits <- listCommits repo branch filename
+    let spec = T.pack $ printf "%s:%s" (cdCommit $ head commits) filename
+    raw <- readCommitSpec repo spec
+    return (cdCommit $ head commits, raw)
+readCommit repo _ filename (Just commit) = do
+    let spec = T.pack $ printf "%s:%s" commit filename
+    raw <- readCommitSpec repo spec
+    return (commit, raw)
 
--- | Read a commit usinga revspec, return the ByteString content
+-- | Read a commit using a revspec, return the ByteString content
 --
 -- [@repo@]: Open git repository
 -- [@spec@]: revspec to read.
@@ -743,8 +746,8 @@ commitRecipe repo branch recipe = do
     getOldVersion recipe_name = do
         eold_recipe <- readRecipeCommit repo branch recipe_name Nothing
         case eold_recipe of
-            Left  _          -> return Nothing
-            Right old_recipe -> return $ rVersion old_recipe
+            Left  _               -> return Nothing
+            Right (_, old_recipe) -> return $ rVersion old_recipe
 
 -- | Commit recipes from a directory, if they don't already exist
 --
@@ -771,15 +774,19 @@ commitRecipeDirectory repo branch directory = do
 -- [@commit@]: The commit hash string to read
 --
 -- If the recipe isn't found it returns a Left
-readRecipeCommit :: Git.Repository -> T.Text -> T.Text -> Maybe T.Text -> IO (Either String Recipe)
+readRecipeCommit :: Git.Repository -> T.Text -> T.Text -> Maybe T.Text -> IO (Either String (T.Text, Recipe))
 readRecipeCommit repo branch recipe_name commit = do
     -- Is this file in the branch?
     branch_files <- listBranchFiles repo branch
-    let filename = recipeTomlFilename $ T.unpack recipe_name
     if filename `notElem` branch_files
         then return $ Left (printf "%s is not present on branch %s" filename branch)
-        else parseRecipe . decodeUtf8 <$> readCommit repo branch filename commit
-
+        else do
+            (commit_id, recipe_toml) <- readCommit repo branch filename commit
+            case (parseRecipe . decodeUtf8) recipe_toml of
+                Left err     -> return $ Left err
+                Right recipe -> return $ Right (commit_id, recipe)
+  where
+    filename = recipeTomlFilename $ T.unpack recipe_name
 
 -- | print the OId
 --
@@ -1039,7 +1046,7 @@ testGitRepo tmpdir = do
     -- Check that the testRecipe's version was not bumped on 1st save
     putStrLn "    - Checking Recipe Version"
     erecipe <- readRecipeCommit repo "master" "test-server" Nothing
-    let recipe = head $ rights [erecipe]
+    let recipe = snd $ head $ rights [erecipe]
     unless (testRecipe == recipe) (throwIO $ RecipeMismatchError [testRecipe, recipe])
 
     -- Check that saving a changed recipe, with the same version, bumps it.
@@ -1050,7 +1057,7 @@ testGitRepo tmpdir = do
     -- Check that the version was bumped on the 2nd save
     putStrLn "    - Checking Modified Recipe's Version"
     erecipe' <- readRecipeCommit repo "master" "test-server" Nothing
-    let recipe' = head $ rights [erecipe']
+    let recipe' = snd $ head $ rights [erecipe']
     unless (new_recipe1 {rVersion = Just "0.1.3"} == recipe') (throwIO $ RecipeMismatchError [new_recipe1, recipe'])
 
     -- Check that saving a changed recipe, with a completely different version, uses it without bumping.
@@ -1062,7 +1069,7 @@ testGitRepo tmpdir = do
     -- Check that the version was used as-is
     putStrLn "    - Checking Modified Recipe's Version"
     erecipe'' <- readRecipeCommit repo "master" "test-server" Nothing
-    let recipe'' = head $ rights [erecipe'']
+    let recipe'' = snd $ head $ rights [erecipe'']
     unless (new_recipe2 == recipe'') (throwIO $ RecipeMismatchError [new_recipe2, recipe''])
 
     -- List the files on master
