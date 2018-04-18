@@ -61,6 +61,7 @@ where
 
 import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), ComposeStatus(..), UuidError(..), UuidStatus(..), deleteCompose, getComposesWithStatus, mkComposeStatus)
 import           BDCS.API.Config(ServerConfig(..))
+import           BDCS.API.ComposeConfig(ComposeConfig(..), composeConfigTOML)
 import           BDCS.API.Customization(processCustomization)
 import           BDCS.API.Depsolve
 import           BDCS.API.Error(APIResponse(..), createAPIError)
@@ -1742,13 +1743,12 @@ instance FromJSON ComposeResponse where
     crBuildID <- o .: "build_id"
     return ComposeResponse{..}
 
-
 -- | POST /api/v0/compose
 -- Start a compose.
 compose :: ServerConfig -> ComposeBody -> Maybe Int -> Handler ComposeResponse
 compose cfg@ServerConfig{..} ComposeBody{..} test = case exportTypeFromText cbType of
     Nothing -> throwError unsupportedOutput
-    Just ty -> withRecipe cfgRepoLock cbBranch cbName $ \recipe -> do
+    Just ty -> withRecipe cfgRepoLock cbBranch cbName $ \commit_id recipe -> do
         buildId <- liftIO nextRandom
         let resultsDir = cfgResultsDir </> show buildId
         liftIO $ do
@@ -1756,6 +1756,8 @@ compose cfg@ServerConfig{..} ComposeBody{..} test = case exportTypeFromText cbTy
             TIO.writeFile (resultsDir </> "STATUS") (queueStatusText QWaiting)
             -- Write out the original recipe.
             TIO.writeFile (resultsDir </> "blueprint.toml") (recipeTOML recipe)
+            -- Write out the compose details
+            TIO.writeFile (resultsDir </> "compose.toml") (composeConfigTOML $ ComposeConfig commit_id cbType)
 
         -- Freeze the recipe so we have precise versions of its components.  This could potentially
         -- return multiple frozen recipes, but I think only if we asked it to do multiple things.
@@ -1779,11 +1781,11 @@ compose cfg@ServerConfig{..} ComposeBody{..} test = case exportTypeFromText cbTy
     -- | Construct an error message for unsupported output selected
     unsupportedOutput = createAPIError err400 False [errorMessage ("compose" :: String) (unsupportedOutputMsg cbType)]
 
-    withRecipe :: GitLock -> Maybe T.Text -> T.Text -> (Recipe -> Handler ComposeResponse) -> Handler ComposeResponse
+    withRecipe :: GitLock -> Maybe T.Text -> T.Text -> (T.Text -> Recipe -> Handler ComposeResponse) -> Handler ComposeResponse
     withRecipe lock branch name fn =
-        liftIO (getRecipeInfo lock (defaultBranch $ fmap cs branch) name) >>= \case
-            Left err          -> throwError $ createAPIError err400 False [err]
-            Right (_, recipe) -> fn recipe
+        liftIO (getRecipeAndCommit lock (defaultBranch $ fmap cs branch) name) >>= \case
+            Left err                       -> throwError $ createAPIError err400 False [err]
+            Right (_, (commit_id, recipe)) -> fn commit_id recipe
 
     withFrozenRecipe :: Maybe T.Text -> T.Text -> (Recipe -> Handler ComposeResponse) -> Handler ComposeResponse
     withFrozenRecipe branch name fn =

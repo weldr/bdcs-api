@@ -19,6 +19,7 @@ cabal-version:          >=1.10
 library
     exposed-modules:    BDCS.API.Compose,
                         BDCS.API.Config,
+                        BDCS.API.ComposeConfig,
                         BDCS.API.Customization,
                         BDCS.API.Depsolve,
                         BDCS.API.Error,
