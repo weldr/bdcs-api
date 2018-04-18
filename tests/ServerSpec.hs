@@ -74,6 +74,7 @@ getComposeQueue :: ClientM ComposeQueueResponse
 getComposeQueueFinished :: ClientM ComposeFinishedResponse
 getComposeQueueFailed :: ClientM ComposeFailedResponse
 getComposeStatus :: String -> ClientM ComposeStatusResponse
+getComposeInfo :: String -> ClientM ComposeInfoResponse
 getComposeDelete :: String -> ClientM ComposeDeleteResponse
 getComposeLogs :: String -> ClientM (Headers '[Header "Content-Disposition" String] LBS.ByteString)
 getComposeImage :: String -> ClientM (Headers '[Header "Content-Disposition" String] LBS.ByteString)
@@ -83,7 +84,7 @@ getStatus :<|> getProjectsList :<|> getProjectsInfo :<|> getProjectsDepsolve
           :<|> postRecipesWorkspace :<|> deleteRecipesWorkspace :<|> postRecipesTag :<|> getRecipesDiff
           :<|> getRecipesDepsolve :<|> getRecipesFreeze :<|> getModulesList
           :<|> getModulesList' :<|> getCompose :<|> getComposeTypes :<|> getComposeQueue
-          :<|> getComposeQueueFinished :<|> getComposeQueueFailed :<|> getComposeStatus
+          :<|> getComposeQueueFinished :<|> getComposeQueueFailed :<|> getComposeStatus :<|> getComposeInfo
           :<|> getComposeDelete :<|> getComposeLogs :<|> getComposeImage = client proxyAPI
 
 

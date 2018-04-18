@@ -33,6 +33,7 @@ module BDCS.API.V0(BuildInfo(..),
                ComposeDeleteResponse(..),
                ComposeFailedResponse(..),
                ComposeFinishedResponse(..),
+               ComposeInfoResponse(..),
                ComposeQueueResponse(..),
                ComposeResponse(..),
                ComposeStatusResponse(..),
@@ -61,7 +62,7 @@ where
 
 import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), ComposeStatus(..), UuidError(..), UuidStatus(..), deleteCompose, getComposesWithStatus, mkComposeStatus)
 import           BDCS.API.Config(ServerConfig(..))
-import           BDCS.API.ComposeConfig(ComposeConfig(..), composeConfigTOML)
+import           BDCS.API.ComposeConfig(ComposeConfig(..), composeConfigTOML, parseComposeConfig)
 import           BDCS.API.Customization(processCustomization)
 import           BDCS.API.Depsolve
 import           BDCS.API.Error(APIResponse(..), createAPIError)
@@ -191,6 +192,8 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
         :<|> "compose"  :> "failed" :> Get '[JSON] ComposeFailedResponse
         :<|> "compose"  :> "status" :> Capture "uuids" String
                                     :> Get '[JSON] ComposeStatusResponse
+        :<|> "compose"  :> "info" :> Capture "uuid" String
+                                    :> Get '[JSON] ComposeInfoResponse
         :<|> "compose"  :> "delete" :> Capture "uuids" String
                                     :> Delete '[JSON] ComposeDeleteResponse
         :<|> "compose"  :> "logs"   :> Capture "uuid" String
@@ -223,6 +226,7 @@ v0ApiServer cfg = projectsListH
              :<|> composeFinishedH
              :<|> composeFailedH
              :<|> composeStatusH
+             :<|> composeInfoH
              :<|> composeDeleteH
              :<|> composeLogsH
              :<|> composeImageH
@@ -250,6 +254,7 @@ v0ApiServer cfg = projectsListH
     composeFinishedH                                 = composeQueueFinished cfg
     composeFailedH                                   = composeQueueFailed cfg
     composeStatusH uuids                             = composeStatus cfg (T.splitOn "," $ cs uuids)
+    composeInfoH uuid                                = composeInfo cfg uuid
     composeDeleteH uuids                             = composeDelete cfg (T.splitOn "," $ cs uuids)
     composeLogsH uuid                                = composeLogs cfg uuid
     composeImageH uuid                               = composeImage cfg (cs uuid)
@@ -2028,6 +2033,90 @@ composeStatus :: ServerConfig -> [T.Text] -> Handler ComposeStatusResponse
 composeStatus ServerConfig{..} uuids =
     ComposeStatusResponse <$> filterMapComposeStatus cfgResultsDir uuids
 
+
+data ComposeInfoResponse = ComposeInfoResponse {
+    cirCommit      :: T.Text,                                           -- ^ Blueprint git commit hash
+    cirBlueprint   :: Recipe,                                           -- ^ Frozen Blueprint
+    cirType        :: T.Text,                                           -- ^ Build type (tar, etc.)
+    cirBuildId     :: T.Text,                                           -- ^ Build UUID
+    cirQueueStatus :: T.Text                                            -- ^ Build queue status
+} deriving (Show, Eq)
+
+instance ToJSON ComposeInfoResponse where
+  toJSON ComposeInfoResponse{..} = object
+    [ "commit"       .= cirCommit
+    , "blueprint"    .= cirBlueprint
+    , "compose_type" .= cirType
+    , "id"           .= cirBuildId
+    , "queue_status" .= cirQueueStatus
+    ]
+
+instance FromJSON ComposeInfoResponse where
+  parseJSON = withObject "/compose/info response" $ \o -> do
+    cirCommit      <- o .: "commit"
+    cirBlueprint   <- o .: "blueprint"
+    cirType        <- o .: "compose_type"
+    cirBuildId     <- o .: "id"
+    cirQueueStatus <- o .: "queue_status"
+    return ComposeInfoResponse{..}
+
+-- | /api/v0/compose/info/<uuid>
+--
+-- Get detailed information about the compose. The returned JSON string will
+-- contain the following information:
+--
+--   * id - The uuid of the comoposition
+--   * config - containing the configuration settings used to run Anaconda
+--   * blueprint - The depsolved blueprint used to generate the kickstart
+--   * commit - The (local) git commit hash for the blueprint used
+--   * deps - The NEVRA of all of the dependencies used in the composition
+--   * compose_type - The type of output generated (tar, iso, etc.)
+--   * queue_status - The final status of the composition (FINISHED or FAILED)
+--
+-- Example::
+--
+-- > {
+-- >   "commit": "7078e521a54b12eae31c3fd028680da7a0815a4d",
+-- >   "compose_type": "tar",
+-- >   "id": "c30b7d80-523b-4a23-ad52-61b799739ce8",
+-- >   "queue_status": "FINISHED",
+-- >   "blueprint": {
+-- >     "description": "An example kubernetes master",
+-- >     ...
+-- >   }
+-- > }
+--
+composeInfo :: ServerConfig -> String -> Handler ComposeInfoResponse
+composeInfo ServerConfig{..} uuid = do
+    result <- liftIO $ runExceptT $ mkComposeStatus cfgResultsDir (cs uuid)
+    case result of
+        Left _                  -> throwError invalid_uuid
+        Right ComposeStatus{..} -> do
+            config <- liftIO $ readComposeConfigFile results_dir
+            case config of
+                Left _                  -> throwError config_error
+                Right ComposeConfig{..} -> do
+                    frozen <- liftIO $ readFrozenBlueprintFile results_dir
+                    case frozen of
+                        Left _       -> throwError frozen_error
+                        Right recipe -> return $ ComposeInfoResponse ccCommit recipe ccExportType (cs uuid) (queueStatusText csQueueStatus)
+  where
+    results_dir = cfgResultsDir </> cs uuid
+    invalid_uuid = createAPIError err400 False ["compose_info: " ++ cs uuid ++ " is not a valid build uuid"]
+    config_error = createAPIError err400 False ["compose_info: " ++ cs uuid ++ " had a problem reading the compose.toml file"]
+    frozen_error = createAPIError err400 False ["compose_info: " ++ cs uuid ++ " had a problem reading the frozen.toml file"]
+
+    -- Read the compose.toml ComposeConfig data from the results directory
+    readComposeConfigFile :: FilePath -> IO (Either String ComposeConfig)
+    readComposeConfigFile dir =
+        CE.catch (parseComposeConfig <$> TIO.readFile (dir </> "compose.toml"))
+                 (\(err :: CE.IOException) -> return $ Left (show err))
+
+    -- Read the frozen.toml blueprint from the results directory
+    readFrozenBlueprintFile :: FilePath -> IO (Either String Recipe)
+    readFrozenBlueprintFile dir =
+        CE.catch (parseRecipe <$> TIO.readFile (dir </> "frozen.toml"))
+                 (\(err :: CE.IOException) -> return $ Left (show err))
 
 data ComposeDeleteResponse = ComposeDeleteResponse {
     cdrErrors :: [UuidError],
