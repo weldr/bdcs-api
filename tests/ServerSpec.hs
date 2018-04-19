@@ -478,6 +478,20 @@ recipesDiffTest = do
         let new_version = rdtVersion $ rdeNew (rdrDiff response_1 !! 0)
         return $ old_version /= new_version && new_version == Just "0.1.8"
 
+composeTypesResponse :: ComposeTypesResponse
+composeTypesResponse = ComposeTypesResponse [ ComposeType True "directory"
+                                            , ComposeType True "ostree"
+                                            , ComposeType True "qcow2"
+                                            , ComposeType True "tar"]
+
+composeEmptyQueueResponse :: ComposeQueueResponse
+composeEmptyQueueResponse = ComposeQueueResponse [] []
+
+composeEmptyFailedResponse :: ComposeFailedResponse
+composeEmptyFailedResponse = ComposeFailedResponse []
+
+composeEmptyFinishedResponse :: ComposeFinishedResponse
+composeEmptyFinishedResponse = ComposeFinishedResponse []
 
 -- | Setup the temporary repo directory with some example recipes
 --
@@ -608,6 +622,17 @@ spec = do
             it "Get list of modules starting with 'bdcs' in them" $ \env ->
                 try env (getModulesList' "bdcs*" Nothing Nothing) `shouldReturn` modulesListResponse1
 
+            it "Get a list of the available compose export types" $ \env ->
+                try env getComposeTypes `shouldReturn` composeTypesResponse
+
+            it "Get the (empty) compose queue" $ \env ->
+                try env getComposeQueue `shouldReturn` composeEmptyQueueResponse
+
+            it "Get the (empty) failed list of composes" $ \env ->
+                try env getComposeQueueFailed `shouldReturn` composeEmptyFailedResponse
+
+            it "Get the (empty)finished list of composes" $ \env ->
+                try env getComposeQueueFinished `shouldReturn` composeEmptyFinishedResponse
 
     describe "cleanup" $
         it "Remove the temporary directory" $
