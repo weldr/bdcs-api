@@ -109,7 +109,7 @@ import           GHC.TypeLits(KnownSymbol)
 import qualified GI.Ggit as Git
 import           Servant
 import           System.Directory(createDirectoryIfMissing)
-import           System.FilePath.Posix((</>))
+import           System.FilePath.Posix((</>), takeFileName)
 
 
 {-# ANN module ("HLint: ignore Eta reduce"  :: String) #-}
@@ -2192,9 +2192,10 @@ composeImage ServerConfig{..} uuid = do
             else liftIO (readArtifactFile $ cfgResultsDir </> cs uuid) >>= \case
                 Nothing -> throwError $ createAPIError err400 False ["compose_image: Build " ++ cs uuid ++ " is missing image file."]
                 Just fn -> do f <- liftIO $ LBS.readFile (cfgResultsDir </> fn)
-                              return $ addHeader ("attachment; filename=" ++ fn ++ ";") f
+                              return $ addHeader ("attachment; filename=" ++ filename fn ++ ";") f
  where
     readArtifactFile :: FilePath -> IO (Maybe String)
     readArtifactFile dir =
         CE.catch (Just <$> readFile (dir </> "ARTIFACT"))
                  (\(_ :: CE.IOException) -> return Nothing)
+    filename fn = cs uuid ++ "-" ++ takeFileName fn
