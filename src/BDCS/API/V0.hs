@@ -75,7 +75,7 @@ import           BDCS.API.Utils(GitLock(..), applyLimits, argify, caseInsensitiv
 import           BDCS.API.Workspace
 import           BDCS.DB
 import           BDCS.Builds(findBuilds, getBuild)
-import           BDCS.Export.Types(exportTypeFromText, exportTypeText, supportedExportTypes)
+import           BDCS.Export.Types(ExportType(..), exportTypeFromText, exportTypeText, supportedExportTypes)
 import           BDCS.Groups(getGroupsLike)
 import           BDCS.Projects(findProject, getProject, getProjectsLike)
 import           BDCS.Sources(findSources, getSource)
@@ -1763,7 +1763,7 @@ compose cfg@ServerConfig{..} ComposeBody{..} test = case exportTypeFromText cbTy
             -- Write out the original recipe.
             TIO.writeFile (resultsDir </> "blueprint.toml") (recipeTOML recipe)
             -- Write out the compose details
-            TIO.writeFile (resultsDir </> "compose.toml") (composeConfigTOML $ ComposeConfig commit_id cbType)
+            TIO.writeFile (resultsDir </> "compose.toml") (composeConfigTOML $ ComposeConfig commit_id ty)
 
         -- Freeze the recipe so we have precise versions of its components.  This could potentially
         -- return multiple frozen recipes, but I think only if we asked it to do multiple things.
@@ -2038,7 +2038,7 @@ composeStatus ServerConfig{..} uuids =
 data ComposeInfoResponse = ComposeInfoResponse {
     cirCommit      :: T.Text,                                           -- ^ Blueprint git commit hash
     cirBlueprint   :: Recipe,                                           -- ^ Frozen Blueprint
-    cirType        :: T.Text,                                           -- ^ Build type (tar, etc.)
+    cirType        :: ExportType,                                       -- ^ Export type (tar, etc.)
     cirBuildId     :: T.Text,                                           -- ^ Build UUID
     cirQueueStatus :: T.Text                                            -- ^ Build queue status
 } deriving (Show, Eq)
@@ -2047,7 +2047,7 @@ instance ToJSON ComposeInfoResponse where
   toJSON ComposeInfoResponse{..} = object
     [ "commit"       .= cirCommit
     , "blueprint"    .= cirBlueprint
-    , "compose_type" .= cirType
+    , "compose_type" .= exportTypeText cirType
     , "id"           .= cirBuildId
     , "queue_status" .= cirQueueStatus
     ]
@@ -2056,7 +2056,7 @@ instance FromJSON ComposeInfoResponse where
   parseJSON = withObject "/compose/info response" $ \o -> do
     cirCommit      <- o .: "commit"
     cirBlueprint   <- o .: "blueprint"
-    cirType        <- o .: "compose_type"
+    cirType        <- (o .: "compose_type") >>= \et -> return $ fromMaybe ExportTar $ exportTypeFromText et
     cirBuildId     <- o .: "id"
     cirQueueStatus <- o .: "queue_status"
     return ComposeInfoResponse{..}

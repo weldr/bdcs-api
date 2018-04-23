@@ -24,7 +24,9 @@ module BDCS.API.ComposeConfig(
     composeConfigTOML
 ) where
 
+import           BDCS.Export.Types(ExportType(..), exportTypeFromText, exportTypeText)
 import           Data.Aeson
+import           Data.Maybe(fromMaybe)
 import qualified Data.Text as T
 import           Text.Printf(printf)
 import           Text.Toml(parseTomlDoc)
@@ -33,19 +35,19 @@ import           Text.Toml(parseTomlDoc)
  -- | Information about the compose configuration not available in other results files
 data ComposeConfig = ComposeConfig {
     ccCommit       :: T.Text,                                           -- ^ Commit hash for Blueprint
-    ccExportType   :: T.Text                                            -- ^ Export type
+    ccExportType   :: ExportType                                        -- ^ Export type
 } deriving (Show, Eq)
 
 instance ToJSON ComposeConfig where
   toJSON ComposeConfig{..} = object
     [ "commit"      .= ccCommit
-    , "export_type" .= ccExportType
+    , "export_type" .= exportTypeText ccExportType
     ]
 
 instance FromJSON ComposeConfig where
   parseJSON = withObject "Compose configuration data" $ \o -> do
     ccCommit     <- o .: "commit"
-    ccExportType <- o .: "export_type"
+    ccExportType <- (o .: "export_type") >>= \et -> return $ fromMaybe ExportTar $ exportTypeFromText et
     return ComposeConfig{..}
 
 -- | Parse a TOML formatted compose config string and return a ComposeConfig
@@ -63,7 +65,7 @@ parseComposeConfig xs =
 
 -- | Return a TOML string from a ComposeConfig record
 composeConfigTOML :: ComposeConfig -> T.Text
-composeConfigTOML ComposeConfig{..} = T.concat [commitText, exportTypeText]
+composeConfigTOML ComposeConfig{..} = T.concat [commitText, exportText]
   where
     commitText = T.pack $ printf "commit = \"%s\"\n" ccCommit
-    exportTypeText = T.pack $ printf "export_type = \"%s\"\n" ccExportType
+    exportText = T.pack $ printf "export_type = \"%s\"\n" (exportTypeText ccExportType)
