@@ -93,7 +93,6 @@ import           Data.Bifunctor(bimap)
 import qualified Data.ByteString.Lazy as LBS
 import           Data.Either(partitionEithers, rights)
 import           Data.Int(Int64)
-import           Data.IORef(atomicModifyIORef')
 import           Data.List(find, sortBy)
 import           Data.List.Extra(nubOrd)
 import           Data.Maybe(fromMaybe, mapMaybe)
@@ -1781,7 +1780,7 @@ compose cfg@ServerConfig{..} ComposeBody{..} test = case exportTypeFromText cbTy
                                      ciCustom=customActions,
                                      ciType=ty }
 
-            void $ atomicModifyIORef' cfgWorkQ (\ref -> (ref ++ [ci], ()))
+            liftIO $ atomically $ writeTChan cfgChan (AskCompose ci, Nothing)
             return $ ComposeResponse True (T.pack $ show buildId)
  where
     -- | Construct an error message for unsupported output selected
@@ -1901,7 +1900,7 @@ composeQueue ServerConfig{..} = do
     -- will be written.  This prevents needing to write a communications
     -- protocol.  Making it initially empty is very important.
     r <- liftIO $ atomically newEmptyTMVar
-    liftIO $ atomically $ writeTChan cfgChan (AskBuildsWaiting, r)
+    liftIO $ atomically $ writeTChan cfgChan (AskBuildsWaiting, Just r)
 
     -- Wait for the response to show up in the TMVar we created.  This blocks,
     -- but the server doesn't do much in its main thread so it shouldn't block
@@ -1912,7 +1911,7 @@ composeQueue ServerConfig{..} = do
 
     -- And then we do the same thing for builds currently running.
     r' <- liftIO $ atomically newEmptyTMVar
-    liftIO $ atomically $ writeTChan cfgChan (AskBuildsInProgress, r')
+    liftIO $ atomically $ writeTChan cfgChan (AskBuildsInProgress, Just r')
     buildsRunning <- liftIO (atomically $ readTMVar r') >>= \case
         RespBuildsInProgress lst -> return lst
         _                        -> return []

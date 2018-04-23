@@ -124,6 +124,7 @@ instance FromJSON UuidStatus where
 
 data ComposeMsgAsk = AskBuildsWaiting
                    | AskBuildsInProgress
+                   | AskCompose ComposeInfo
 
 data ComposeMsgResp = RespBuildsWaiting [T.Text]
                     | RespBuildsInProgress [T.Text]

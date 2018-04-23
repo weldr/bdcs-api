@@ -22,13 +22,12 @@ module BDCS.API.Config(AskTuple,
   where
 
 import BDCS.API.Utils(GitLock(..))
-import BDCS.API.Compose(ComposeInfo, ComposeMsgAsk, ComposeMsgResp)
+import BDCS.API.Compose(ComposeMsgAsk, ComposeMsgResp)
 import Control.Concurrent.STM.TChan(TChan)
 import Control.Concurrent.STM.TMVar(TMVar)
-import Data.IORef(IORef)
 import Database.Persist.Sql(ConnectionPool)
 
-type AskTuple = (ComposeMsgAsk, TMVar ComposeMsgResp)
+type AskTuple = (ComposeMsgAsk, Maybe (TMVar ComposeMsgResp))
 
 data ServerConfig = ServerConfig
   {  cfgRepoLock    :: GitLock                                  -- ^ Lock required for accessing recipe repo
@@ -36,7 +35,6 @@ data ServerConfig = ServerConfig
                                                                 -- the compose server.  The tuple is the message
                                                                 -- that needs a response and a location for where
                                                                 -- the response should be written to.
-  ,  cfgWorkQ       :: IORef [ComposeInfo]                      -- ^ Worklist of composes
   ,  cfgPool        :: ConnectionPool                           -- ^ SQL connection pool for accessing MDDB
   ,  cfgBdcs        :: FilePath                                 -- ^ Location of the content store
   ,  cfgResultsDir  :: FilePath                                 -- ^ Base location for writing results
