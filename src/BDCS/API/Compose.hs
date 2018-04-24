@@ -27,7 +27,6 @@ module BDCS.API.Compose(ComposeInfo(..),
                         ComposeMsgAsk(..),
                         ComposeMsgResp(..),
                         ComposeStatus(..),
-                        UuidError(..),
                         UuidStatus(..),
                         compose,
                         deleteCompose,
@@ -93,21 +92,6 @@ instance FromJSON ComposeStatus where
                       <*> o .: "timestamp"
                       <*> o .: "version"
 
-data UuidError = UuidError {
-    ueMsg  :: T.Text,
-    ueUuid :: T.Text
-} deriving (Show, Eq)
-
-instance ToJSON UuidError where
-    toJSON UuidError{..} = object [
-        "msg"   .= ueMsg,
-        "uuid"  .= ueUuid ]
-
-instance FromJSON UuidError where
-    parseJSON = withObject "UUID error type" $ \o ->
-        UuidError <$> o .: "msg"
-                  <*> o .: "uuid"
-
 data UuidStatus = UuidStatus {
     usStatus :: Bool,
     usUuid :: T.Text
@@ -172,18 +156,18 @@ compose bdcs pool ComposeInfo{..} = do
 
         logInfoN $ T.concat [msg, " ", cs (show time)]
 
-deleteCompose :: FilePath -> T.Text -> IO (Either UuidError UuidStatus)
+deleteCompose :: FilePath -> T.Text -> IO (Either String UuidStatus)
 deleteCompose dir uuid =
     liftIO (runExceptT $ mkComposeStatus dir uuid) >>= \case
-        Left _                  -> return $ Left UuidError { ueMsg="Not a valid build uuid", ueUuid=uuid }
+        Left _                  -> return $ Left $ cs uuid ++ " is not a valid build uuid"
         Right ComposeStatus{..} ->
             if not (queueStatusEnded csQueueStatus)
-            then return $ Left UuidError { ueMsg="Build not in FINISHED or FAILED", ueUuid=uuid }
+            then return $ Left $ "Build " ++ cs uuid ++ " not in FINISHED or FAILED"
             else do
                 let path = dir </> cs uuid
                 CE.catch (do removePathForcibly path
                              return $ Right UuidStatus { usStatus=True, usUuid=uuid })
-                         (\(e :: CE.IOException) -> return $ Left UuidError { ueMsg=cs $ show e, ueUuid=uuid })
+                         (\(e :: CE.IOException) -> return $ Left $ cs uuid ++ ": " ++ cs (show e))
 
 getComposesWithStatus :: FilePath -> QueueStatus -> IO [ComposeStatus]
 getComposesWithStatus resultsDir status = do

@@ -61,7 +61,7 @@ module BDCS.API.V0(BuildInfo(..),
                v0ApiServer)
 where
 
-import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), ComposeStatus(..), UuidError(..), UuidStatus(..), deleteCompose, getComposesWithStatus, mkComposeStatus)
+import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), ComposeStatus(..), UuidStatus(..), deleteCompose, getComposesWithStatus, mkComposeStatus)
 import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.ComposeConfig(ComposeConfig(..), composeConfigTOML, parseComposeConfig)
 import           BDCS.API.Customization(processCustomization)
@@ -420,12 +420,7 @@ instance FromJSON RecipesInfoResponse where
 -- >                 }
 -- >             ]
 -- >         },
--- >     "errors": [
--- >         {
--- >             "blueprint": "a-missing-blueprint",
--- >             "msg": "Error retrieving a-missing-blueprint"
--- >         }
--- >     ]
+-- >     "errors": ["a-missing-blueprint: Error retrieving a-missing-blueprint.toml"]
 -- > }
 --
 recipesInfo :: ServerConfig -> Maybe String -> String -> Handler RecipesInfoResponse
@@ -600,12 +595,7 @@ instance FromJSON RecipesChangesResponse where
 -- >             "total": 2
 -- >         }
 -- >     ],
--- >     "errors": [
--- >         {
--- >             "blueprint": "a-missing-recipe",
--- >             "msg": "Error retrieving a-missing-blueprint"
--- >         }
--- >     ]
+-- >     "errors": ["a-missing-recipe: Error retrieving a-missing-blueprint.toml"]
 -- >     "offset": 0,
 -- >     "limit": 20
 -- > }
@@ -1018,12 +1008,7 @@ instance FromJSON RecipesDepsolveResponse where
 -- # Error example
 --
 -- > {
--- >     "errors": [
--- >         {
--- >             "msg": "nfs-server.toml is not present on branch master",
--- >             "blueprint": "nfs-server"
--- >         }
--- >     ],
+-- >     "errors": ["nfs-server.toml is not present on branch master"],
 -- >     "blueprints": []
 -- > }
 --
@@ -2116,8 +2101,8 @@ composeInfo ServerConfig{..} uuid = do
         tryIO (TIO.readFile (dir </> "compose.toml")) >>= ExceptT . return . parseRecipe
 
 data ComposeDeleteResponse = ComposeDeleteResponse {
-    cdrErrors :: [UuidError],
-    cdrUuids :: [UuidStatus]
+    cdrErrors :: [String],
+    cdrUuids  :: [UuidStatus]
 } deriving (Show, Eq)
 
 instance ToJSON ComposeDeleteResponse where
