@@ -66,7 +66,7 @@ import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.ComposeConfig(ComposeConfig(..), composeConfigTOML, parseComposeConfig)
 import           BDCS.API.Customization(processCustomization)
 import           BDCS.API.Depsolve
-import           BDCS.API.Error(APIResponse(..), createAPIError)
+import           BDCS.API.Error(APIResponse(..), createAPIError, tryIO)
 import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded, queueStatusText)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
@@ -2089,18 +2089,16 @@ instance FromJSON ComposeInfoResponse where
 --
 composeInfo :: ServerConfig -> String -> Handler ComposeInfoResponse
 composeInfo ServerConfig{..} uuid = do
-    result <- liftIO $ runExceptT $ mkComposeStatus cfgResultsDir (cs uuid)
+    result <- liftIO $ runExceptT $ do
+        ComposeStatus{..} <- withExceptT (const invalid_uuid)
+                                         (mkComposeStatus cfgResultsDir (cs uuid))
+        ComposeConfig{..} <- readComposeConfigFile results_dir
+        recipe            <- readFrozenBlueprintFile results_dir
+        return $ ComposeInfoResponse ccCommit recipe ccExportType (cs uuid) (queueStatusText csQueueStatus)
+
     case result of
-        Left _                  -> throwError invalid_uuid
-        Right ComposeStatus{..} -> do
-            config <- liftIO $ readComposeConfigFile results_dir
-            case config of
-                Left _                  -> throwError config_error
-                Right ComposeConfig{..} -> do
-                    frozen <- liftIO $ readFrozenBlueprintFile results_dir
-                    case frozen of
-                        Left _       -> throwError frozen_error
-                        Right recipe -> return $ ComposeInfoResponse ccCommit recipe ccExportType (cs uuid) (queueStatusText csQueueStatus)
+        Left err -> throwError err
+        Right r  -> return r
   where
     results_dir = cfgResultsDir </> cs uuid
     invalid_uuid = createAPIError err400 False ["compose_info: " ++ cs uuid ++ " is not a valid build uuid"]
@@ -2108,16 +2106,14 @@ composeInfo ServerConfig{..} uuid = do
     frozen_error = createAPIError err400 False ["compose_info: " ++ cs uuid ++ " had a problem reading the frozen.toml file"]
 
     -- Read the compose.toml ComposeConfig data from the results directory
-    readComposeConfigFile :: FilePath -> IO (Either String ComposeConfig)
-    readComposeConfigFile dir =
-        CE.catch (parseComposeConfig <$> TIO.readFile (dir </> "compose.toml"))
-                 (\(err :: CE.IOException) -> return $ Left (show err))
+    readComposeConfigFile :: FilePath -> ExceptT ServantErr IO ComposeConfig
+    readComposeConfigFile dir = withExceptT (const config_error) $
+        tryIO (TIO.readFile (dir </> "compose.toml")) >>= ExceptT . return . parseComposeConfig
 
     -- Read the frozen.toml blueprint from the results directory
-    readFrozenBlueprintFile :: FilePath -> IO (Either String Recipe)
-    readFrozenBlueprintFile dir =
-        CE.catch (parseRecipe <$> TIO.readFile (dir </> "frozen.toml"))
-                 (\(err :: CE.IOException) -> return $ Left (show err))
+    readFrozenBlueprintFile :: FilePath -> ExceptT ServantErr IO Recipe
+    readFrozenBlueprintFile dir = withExceptT (const frozen_error) $
+        tryIO (TIO.readFile (dir </> "compose.toml")) >>= ExceptT . return . parseRecipe
 
 data ComposeDeleteResponse = ComposeDeleteResponse {
     cdrErrors :: [UuidError],
