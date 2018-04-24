@@ -36,6 +36,7 @@ module BDCS.API.Compose(ComposeInfo(..),
   where
 
 import           BDCS.API.Depsolve(PackageNEVRA(..), depsolveRecipe)
+import           BDCS.API.Error(tryIO)
 import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded, queueStatusText, queueStatusFromText)
 import           BDCS.API.Recipe(Recipe(..), RecipeModule(..), parseRecipe)
 import           BDCS.Export(exportAndCustomize)
@@ -220,7 +221,3 @@ mkComposeStatus baseDir buildId = do
                            csQueueStatus = status',
                            csTimestamp = mtime,
                            csVersion = maybe "0.0.1" cs rVersion }
- where
-     tryIO :: IO a -> ExceptT String IO a
-     tryIO fn = ExceptT $ liftIO $ CE.catch (Right <$> fn)
-                                            (\(e :: CE.IOException) -> return $ Left (show e))

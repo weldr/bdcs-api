@@ -16,13 +16,18 @@
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-| Error functions for use with "BDCS.API"
 -}
 module BDCS.API.Error(createAPIError,
+                      tryIO,
                       APIResponse(..))
   where
 
+import qualified Control.Exception as CE
+import           Control.Monad.Except(ExceptT(..))
+import           Control.Monad.IO.Class(liftIO)
 import           Data.Aeson
 import qualified Data.ByteString.Lazy.Char8 as C8
 import           Network.HTTP.Types(Header)
@@ -68,3 +73,8 @@ createAPIError base status messages = base { errBody=apiError, errHeaders=[jsonC
 
     jsonContentHdr :: Header
     jsonContentHdr = ("Content-Type", "application/json")
+
+-- | Convert IO Exceptions into an ExceptT.
+tryIO :: IO a -> ExceptT String IO a
+tryIO fn = ExceptT $ liftIO $ CE.catch (Right <$> fn)
+                                       (\(e :: CE.IOException) -> return $ Left (show e))
