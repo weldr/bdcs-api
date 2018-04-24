@@ -1514,7 +1514,7 @@ projectsInfo ServerConfig{..} project_names = do
     results <- liftIO $ mapM (runExceptT . getProjectInfo) project_name_list
     return $ ProjectsInfoResponse (rights results)
   where
-    getProjectInfo :: IsString e => T.Text -> ExceptT e IO ProjectInfo
+    getProjectInfo :: T.Text -> ExceptT String IO ProjectInfo
     getProjectInfo project_name = do
         (projKey, proj) <- fetchProjects project_name
         sources         <- fetchSources projKey
@@ -1750,8 +1750,9 @@ instance FromJSON ComposeResponse where
 
 -- | POST /api/v0/compose
 -- Start a compose.
+-- TODO implement test support
 compose :: ServerConfig -> ComposeBody -> Maybe Int -> Handler ComposeResponse
-compose cfg@ServerConfig{..} ComposeBody{..} test = case exportTypeFromText cbType of
+compose cfg@ServerConfig{..} ComposeBody{..} _test = case exportTypeFromText cbType of
     Nothing -> throwError unsupportedOutput
     Just ty -> withRecipe cfgRepoLock cbBranch cbName $ \commit_id recipe -> do
         buildId <- liftIO nextRandom
