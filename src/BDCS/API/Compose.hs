@@ -109,9 +109,13 @@ instance FromJSON UuidStatus where
 
 data ComposeMsgAsk = AskBuildsWaiting
                    | AskBuildsInProgress
+                   | AskCancelBuild T.Text
                    | AskCompose ComposeInfo
+                   | AskDequeueBuild T.Text
 
-data ComposeMsgResp = RespBuildsWaiting [T.Text]
+data ComposeMsgResp = RespBuildCancelled Bool
+                    | RespBuildDequeued Bool
+                    | RespBuildsWaiting [T.Text]
                     | RespBuildsInProgress [T.Text]
 
 compose :: (MonadBaseControl IO m, MonadLoggerIO m, MonadThrow m) => FilePath -> ConnectionPool -> ComposeInfo -> m ()

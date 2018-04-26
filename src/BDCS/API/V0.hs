@@ -194,6 +194,8 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                     :> Get '[JSON] ComposeStatusResponse
         :<|> "compose"  :> "info" :> Capture "uuid" String
                                     :> Get '[JSON] ComposeInfoResponse
+        :<|> "compose"  :> "cancel" :> Capture "uuid" String
+                                    :> Delete '[JSON] APIResponse
         :<|> "compose"  :> "delete" :> Capture "uuids" String
                                     :> Delete '[JSON] ComposeDeleteResponse
         :<|> "compose"  :> "logs"   :> Capture "uuid" String
@@ -227,6 +229,7 @@ v0ApiServer cfg = projectsListH
              :<|> composeFailedH
              :<|> composeStatusH
              :<|> composeInfoH
+             :<|> composeCancelH
              :<|> composeDeleteH
              :<|> composeLogsH
              :<|> composeImageH
@@ -255,6 +258,7 @@ v0ApiServer cfg = projectsListH
     composeFailedH                                   = composeQueueFailed cfg
     composeStatusH uuids                             = composeStatus cfg (T.splitOn "," $ cs uuids)
     composeInfoH uuid                                = composeInfo cfg uuid
+    composeCancelH uuid                              = composeCancel cfg uuid
     composeDeleteH uuids                             = composeDelete cfg (T.splitOn "," $ cs uuids)
     composeLogsH uuid                                = composeLogs cfg uuid
     composeImageH uuid                               = composeImage cfg (cs uuid)
@@ -2114,6 +2118,38 @@ instance FromJSON ComposeDeleteResponse where
     parseJSON = withObject "/compose/delete response" $ \o ->
         ComposeDeleteResponse <$> o .: "errors"
                               <*> o .: "uuids"
+
+
+-- | DELETE /api/v0/compose/cancel/<uuid>
+--
+-- Cancel the build, if it is not finished, and delete the results. It will return a
+-- status of True if it is successful.
+--
+-- The response for a successful DELETE is:
+--
+-- > {
+-- >     "status": true,
+-- >     "errors": []
+-- > }
+composeCancel :: ServerConfig -> String -> Handler APIResponse
+composeCancel ServerConfig{..} uuid = do
+    result <- liftIO $ runExceptT $ mkComposeStatus cfgResultsDir (cs uuid)
+    case result of
+        Left _                  -> throwError $ createAPIError err400 False ["compose_cancel: " ++ cs uuid ++ " is not a valid build uuid"]
+        Right ComposeStatus{..} -> case csQueueStatus of
+            QWaiting -> do r <- liftIO $ atomically newEmptyTMVar
+                           liftIO $ atomically $ writeTChan cfgChan (AskDequeueBuild csBuildId, Just r)
+                           liftIO (atomically $ readTMVar r) >>= \case
+                               RespBuildDequeued True -> return $ APIResponse True []
+                               _                      -> throwError $ createAPIError err400 False ["compose_cancel: " ++ cs uuid ++ " could not be canceled"]
+
+            QRunning -> do r <- liftIO $ atomically newEmptyTMVar
+                           liftIO $ atomically $ writeTChan cfgChan (AskCancelBuild csBuildId, Just r)
+                           liftIO (atomically $ readTMVar r) >>= \case
+                               RespBuildCancelled True -> return $ APIResponse True []
+                               _                       -> throwError $ createAPIError err400 False ["compose_cancel: " ++ cs uuid ++ "could not be canceled"]
+
+            _        -> throwError $ createAPIError err400 False ["compose_cancel: " ++ cs uuid ++ " is not in WAITING or RUNNING"]
 
 -- | DELETE /api/v0/compose/delete/<uuids>
 --

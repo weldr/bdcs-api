@@ -40,7 +40,7 @@ import           BDCS.API.Utils(GitLock(..))
 import           BDCS.API.V0(V0API, v0ApiServer)
 import           BDCS.API.Version(apiVersion)
 import           BDCS.DB(schemaVersion, getDbVersion)
-import           Control.Concurrent.Async(Async, async, concurrently_, waitCatch)
+import           Control.Concurrent.Async(Async, async, cancel, concurrently_, waitCatch)
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Concurrent.STM.TChan(newTChan, readTChan)
 import           Control.Concurrent.STM.TVar(TVar, modifyTVar, newTVar, readTVar, writeTVar)
@@ -52,18 +52,18 @@ import           Control.Monad.STM(atomically)
 import           Data.Aeson
 import           Data.Int(Int64)
 import           Data.IORef(IORef, atomicModifyIORef', newIORef, readIORef)
-import           Data.List(uncons)
+import           Data.List(delete, find, uncons)
 import qualified Data.Map as Map
 import           Data.String.Conversions(cs)
 import qualified Data.Text as T
-import           Database.Persist.Sqlite
+import           Database.Persist.Sqlite hiding(delete)
 import           GHC.Conc(retry)
 import qualified GI.Ggit as Git
 import           Network.Wai
 import           Network.Wai.Handler.Warp
 import           Network.Wai.Middleware.Cors
 import           Servant
-import           System.Directory(createDirectoryIfMissing)
+import           System.Directory(createDirectoryIfMissing, removePathForcibly)
 import           System.FilePath.Posix((</>))
 
 type InProgressMap = Map.Map T.Text (Async (), ComposeInfo)
@@ -249,9 +249,41 @@ composeServer ServerConfig{..} = do
             -- And then extract the UUIDs of each, and that's the answer.
             atomically $ putTMVar r (RespBuildsInProgress $ map ciId inProgress)
 
+        (AskCancelBuild buildId, Just r) -> do
+            inProgress <- readIORef inProgressRef
+            case Map.lookup buildId inProgress of
+                Just (thread, ci) -> do cancel thread
+                                        removeCompose inProgressRef buildId
+                                        removePathForcibly (ciResultsDir ci)
+                                        atomically $ putTMVar r (RespBuildCancelled True)
+
+                _                 -> atomically $ putTMVar r (RespBuildCancelled False)
+
         (AskCompose ci, _) ->
             -- Add the new compose to the end of the work queue.  It will eventually
             -- get around to being run by composesThread.
             atomically $ modifyTVar worklist (++ [ci])
+
+        (AskDequeueBuild buildId, Just r) -> do
+            -- The worklist stores ComposeInfo records, but we only get the UUID from the
+            -- client.  So first we have to find the right element in the worklist.  Some
+            -- element with that UUID should be present, but we can't guarantee that given
+            -- all the multiprocessing stuff.  Hence the Maybe.
+            ci <- atomically $ do
+                lst <- readTVar worklist
+                case find (\e -> ciId e == buildId) lst of
+                    Just ele -> modifyTVar worklist (delete ele) >> return (Just ele)
+                    Nothing  -> return Nothing
+
+            -- If we found a ComposeInfo, clean it up - remove the results directory
+            -- (that doesn't yet have an artifact, but should have some toml files) and
+            -- inform the client.  We already removed it from the worklist in the block
+            -- above.
+            case ci of
+                Just ComposeInfo{..} -> do
+                    removePathForcibly ciResultsDir
+                    atomically $ putTMVar r (RespBuildDequeued True)
+
+                Nothing -> atomically $ putTMVar r (RespBuildDequeued False)
 
         _ -> return ()
