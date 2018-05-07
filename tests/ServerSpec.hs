@@ -211,20 +211,20 @@ projectsDepsolveResponse2 =
     ProjectsDepsolveResponse []
 
 projectsListResponse1 :: ProjectsListResponse
-projectsListResponse1 = ProjectsListResponse [Projects "bdcs-fake-bart" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
-                                             Projects "bdcs-fake-homer" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
-                                             Projects "bdcs-fake-lisa" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
-                                             Projects "bdcs-fake-sax" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS"]
+projectsListResponse1 = ProjectsListResponse [Projects "bdcs-fake-bart" "Dummy summary" "This is a dummy description." Nothing Nothing,
+                                             Projects "bdcs-fake-homer" "Dummy summary" "This is a dummy description." Nothing Nothing,
+                                             Projects "bdcs-fake-lisa" "Dummy summary" "This is a dummy description." Nothing Nothing,
+                                             Projects "bdcs-fake-sax" "Dummy summary" "This is a dummy description." Nothing Nothing]
                                             0 20 4
 
 projectsListResponse2 :: ProjectsListResponse
-projectsListResponse2 = ProjectsListResponse [Projects "bdcs-fake-bart" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
-                                             Projects "bdcs-fake-homer" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS"]
+projectsListResponse2 = ProjectsListResponse [Projects "bdcs-fake-bart" "Dummy summary" "This is a dummy description." Nothing Nothing,
+                                             Projects "bdcs-fake-homer" "Dummy summary" "This is a dummy description." Nothing Nothing]
                                             0 2 4
 
 projectsListResponse3 :: ProjectsListResponse
-projectsListResponse3 = ProjectsListResponse [ Projects "bdcs-fake-lisa" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS",
-                                             Projects "bdcs-fake-sax" "Dummy summary" "This is a dummy description." (Just "") "UPSTREAM_VCS"]
+projectsListResponse3 = ProjectsListResponse [ Projects "bdcs-fake-lisa" "Dummy summary" "This is a dummy description." Nothing Nothing,
+                                             Projects "bdcs-fake-sax" "Dummy summary" "This is a dummy description." Nothing Nothing]
                                             2 20 4
 
 projectsInfoResponse1 :: ProjectsInfoResponse
@@ -246,7 +246,7 @@ projectsInfoResponse1 = ProjectsInfoResponse [
                   piHomepage = Nothing,
                   piName = "bdcs-fake-bart",
                   piSummary = "Dummy summary",
-                  piUpstream = "UPSTREAM_VCS" } ]
+                  piUpstream = Nothing } ]
 
 projectsInfoResponse2 :: ProjectsInfoResponse
 projectsInfoResponse2 = ProjectsInfoResponse [
@@ -267,7 +267,7 @@ projectsInfoResponse2 = ProjectsInfoResponse [
                   piHomepage = Nothing,
                   piName = "bdcs-fake-bart",
                   piSummary = "Dummy summary",
-                  piUpstream = "UPSTREAM_VCS" },
+                  piUpstream = Nothing },
     ProjectInfo { piBuilds = [BuildInfo { biArch = "x86_64",
                                           biConfigRef = "BUILD_CONFIG_REF",
                                           biEnvRef = "BUILD_ENV_REF",
@@ -285,7 +285,7 @@ projectsInfoResponse2 = ProjectsInfoResponse [
                   piHomepage = Nothing,
                   piName = "bdcs-fake-sax",
                   piSummary = "Dummy summary",
-                  piUpstream = "UPSTREAM_VCS" } ]
+                  piUpstream = Nothing } ]
 
 modulesListResponse1 :: ModulesListResponse
 modulesListResponse1 = ModulesListResponse

@@ -1429,7 +1429,7 @@ data ProjectInfo = ProjectInfo {
     piHomepage :: Maybe T.Text,
     piName :: T.Text,
     piSummary :: T.Text,
-    piUpstream :: T.Text
+    piUpstream :: Maybe T.Text
 } deriving (Show, Eq)
 
 instance ToJSON ProjectInfo where
