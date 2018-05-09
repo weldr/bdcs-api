@@ -40,12 +40,11 @@ import           BDCS.API.Utils(GitLock(..))
 import           BDCS.API.V0(V0API, v0ApiServer)
 import           BDCS.API.Version(apiVersion)
 import           BDCS.DB(schemaVersion, getDbVersion)
-import           Control.Concurrent.Async(Async, async, cancel, concurrently_, waitCatch)
+import           Control.Concurrent.Async(Async, async, cancel, replicateConcurrently_, waitCatch)
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Concurrent.STM.TChan(newTChan, readTChan)
-import           Control.Concurrent.STM.TVar(TVar, modifyTVar, newTVar, readTVar, writeTVar)
-import           Control.Concurrent.STM.TMVar(putTMVar)
-import           Control.Monad(forever, void, when)
+import           Control.Concurrent.STM.TMVar(TMVar, newTMVar, putTMVar, readTMVar, takeTMVar)
+import           Control.Monad(forever, void)
 import           Control.Monad.Except(runExceptT)
 import           Control.Monad.Logger(runFileLoggingT, runStderrLoggingT)
 import           Control.Monad.STM(atomically)
@@ -98,6 +97,10 @@ instance FromJSON ServerStatus where
 -- | The /status route
 type CommonAPI = "api" :> "status" :> Get '[JSON] ServerStatus
 
+-- The maximum number of composes that can run simultaneously.  Modify this for your site's
+-- requirements and capabilities.
+maxComposes :: Int
+maxComposes = 1
 
 serverStatus :: ServerConfig -> Handler ServerStatus
 serverStatus ServerConfig{..} = do
@@ -183,22 +186,22 @@ composeServer ServerConfig{..} = do
     -- is currently running.
     inProgressRef <- newIORef Map.empty
 
-    -- A list of all composes currently waiting to be run.  It would be easier if we
-    -- could use a TChan to represent it, but there's no good way to grab the entire
-    -- contents of one - it's a FIFO.  Thus we need to use some sort of list.
-    worklist <- atomically $ newTVar empty
+    -- A list of all composes currently waiting to be run.
+    worklist <- atomically $ newTMVar empty
 
-    -- From here, we run two separate threads forever.
+    -- From here, we run several separate threads forever.
     --
     -- One thread reads messages out of the channel and responds to them.  This includes
     -- things like "what is waiting in the queue?" and "what is currently composing?".
     -- It also includes requests to start new composes.
     --
-    -- The other thread runs composes.  It does one at a time - reading the first item
-    -- out of a worklist, starting the compose, and waiting for it to finish.  When one
-    -- compose is finished, it can look at the list to see about starting the next one.
-    concurrently_ (messagesThread inProgressRef worklist)
-                  (composesThread inProgressRef worklist)
+    -- All the other threads are worker threads that run composes.  We run as many threads
+    -- as we are allowed maximum simultaneous composes.  Each thread does one compose at
+    -- a time - reading the first item out of the worklist, starting the compose, and
+    -- waiting for it to finish.  When one compose is finished, it can look at the list to
+    -- see about starting the next one.
+    void $ async $ messagesThread inProgressRef worklist
+    replicateConcurrently_ maxComposes (workerThread inProgressRef worklist)
  where
     -- Add a newly started compose to the in progress map.
     addCompose :: IORef InProgressMap -> ComposeInfo -> Async () -> IO ()
@@ -210,38 +213,29 @@ composeServer ServerConfig{..} = do
     removeCompose ref uuid =
         void $ atomicModifyIORef' ref (\m -> (Map.delete uuid m, ()))
 
-    composesThread :: IORef InProgressMap -> TVar (Seq ComposeInfo) -> IO ()
-    composesThread inProgressRef worklist = forever $ do
-        -- For now, we only support running one compose at a time.  If the mutable
-        -- variable is not empty, we are already running a compose.  Don't try to
-        -- start another one.  This leaves the work queue alone so we can grab the next
-        -- item later.
-        inProgress <- readIORef inProgressRef
-        when (Map.null inProgress) $ do
-            -- Start another compose and wait for it to be done.  When the thread
-            -- finishes (either because the compose is done or because it failed),
-            -- clear out the mutable variable.  Here, we don't actually care about
-            -- whether it failed or finished - that's all handled elsewhere.
-            ci <- atomically $ do
-                lst <- readTVar worklist
-                case lst of
-                    -- This call to retry is very important.  Without it, any polling
-                    -- on data structures like a TVar or an IORef keeps the CPU pegged
-                    -- at 100% the entire time.
-                    (x :<| xs) -> writeTVar worklist xs >> return x
-                    _          -> retry
+    workerThread :: IORef InProgressMap -> TMVar (Seq ComposeInfo) -> IO ()
+    workerThread inProgressRef worklist = forever $ do
+        -- Attempt to grab the first ComposeInfo out of the worklist.  This call blocks the
+        -- worker thread until something appears in the list and we can get it.
+        ci <- atomically $ takeTMVar worklist >>= \case
+            (x :<| xs) -> putTMVar worklist xs >> return x
+            -- This retry call is critical - without it, the worker threads and messages
+            -- thread will deadlock trying to read the worklist.
+            _          -> retry
 
-            thread <- async $ runFileLoggingT (ciResultsDir ci </> "compose.log")
-                                              (compose cfgBdcs cfgPool ci)
+        -- We got a ComposeInfo.  Start the compose in a separate thread and wait
+        -- for it to finish (which could be due to success, failure, or cancellation).
+        thread <- async $ runFileLoggingT (ciResultsDir ci </> "compose.log")
+                                          (compose cfgBdcs cfgPool ci)
 
-            addCompose inProgressRef ci thread
-            void $ waitCatch thread
-            removeCompose inProgressRef (ciId ci)
+        addCompose inProgressRef ci thread
+        void $ waitCatch thread
+        removeCompose inProgressRef (ciId ci)
 
-    messagesThread :: IORef InProgressMap -> TVar (Seq ComposeInfo) -> IO ()
+    messagesThread :: IORef InProgressMap -> TMVar (Seq ComposeInfo) -> IO ()
     messagesThread inProgressRef worklist = forever $ atomically (readTChan cfgChan) >>= \case
         (AskBuildsWaiting, Just r) -> do
-            lst <- atomically $ readTVar worklist
+            lst <- atomically $ readTMVar worklist
             atomically $ putTMVar r (RespBuildsWaiting $ map ciId (toList lst))
 
         (AskBuildsInProgress, Just r) -> do
@@ -260,10 +254,11 @@ composeServer ServerConfig{..} = do
 
                 _                 -> atomically $ putTMVar r (RespBuildCancelled False)
 
-        (AskCompose ci, _) ->
+        (AskCompose ci, _) -> atomically $ do
             -- Add the new compose to the end of the work queue.  It will eventually
             -- get around to being run by composesThread.
-            atomically $ modifyTVar worklist (|> ci)
+            lst <- takeTMVar worklist
+            putTMVar worklist (lst |> ci)
 
         (AskDequeueBuild buildId, Just r) -> do
             -- The worklist stores ComposeInfo records, but we only get the UUID from the
@@ -271,11 +266,11 @@ composeServer ServerConfig{..} = do
             -- element with that UUID should be present, but we can't guarantee that given
             -- all the multiprocessing stuff.  Hence the Maybe.
             ci <- atomically $ do
-                lst <- readTVar worklist
+                lst <- takeTMVar worklist
                 case findIndexL (\e -> ciId e == buildId) lst of
                     Nothing  -> return Nothing
                     Just ndx -> do let ele = index lst ndx
-                                   modifyTVar worklist (deleteAt ndx)
+                                   putTMVar worklist (deleteAt ndx lst)
                                    return $ Just ele
 
             -- If we found a ComposeInfo, clean it up - remove the results directory
