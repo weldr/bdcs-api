@@ -52,12 +52,13 @@ import           Control.Monad.STM(atomically)
 import           Data.Aeson
 import           Data.Int(Int64)
 import           Data.IORef(IORef, atomicModifyIORef', newIORef, readIORef)
-import           Data.List(delete, find, uncons)
 import qualified Data.Map as Map
+import           Data.Sequence((|>), Seq(..), deleteAt, empty, findIndexL, index)
 import           Data.String.Conversions(cs)
 import qualified Data.Text as T
-import           Database.Persist.Sqlite hiding(delete)
+import           Database.Persist.Sqlite
 import           GHC.Conc(retry)
+import           GHC.Exts(toList)
 import qualified GI.Ggit as Git
 import           Network.Wai
 import           Network.Wai.Handler.Warp
@@ -185,7 +186,7 @@ composeServer ServerConfig{..} = do
     -- A list of all composes currently waiting to be run.  It would be easier if we
     -- could use a TChan to represent it, but there's no good way to grab the entire
     -- contents of one - it's a FIFO.  Thus we need to use some sort of list.
-    worklist <- atomically $ newTVar []
+    worklist <- atomically $ newTVar empty
 
     -- From here, we run two separate threads forever.
     --
@@ -209,7 +210,7 @@ composeServer ServerConfig{..} = do
     removeCompose ref uuid =
         void $ atomicModifyIORef' ref (\m -> (Map.delete uuid m, ()))
 
-    composesThread :: IORef InProgressMap -> TVar [ComposeInfo] -> IO ()
+    composesThread :: IORef InProgressMap -> TVar (Seq ComposeInfo) -> IO ()
     composesThread inProgressRef worklist = forever $ do
         -- For now, we only support running one compose at a time.  If the mutable
         -- variable is not empty, we are already running a compose.  Don't try to
@@ -223,12 +224,12 @@ composeServer ServerConfig{..} = do
             -- whether it failed or finished - that's all handled elsewhere.
             ci <- atomically $ do
                 lst <- readTVar worklist
-                case uncons lst of
+                case lst of
                     -- This call to retry is very important.  Without it, any polling
                     -- on data structures like a TVar or an IORef keeps the CPU pegged
                     -- at 100% the entire time.
-                    Nothing      -> retry
-                    Just (x, xs) -> writeTVar worklist xs >> return x
+                    (x :<| xs) -> writeTVar worklist xs >> return x
+                    _          -> retry
 
             thread <- async $ runFileLoggingT (ciResultsDir ci </> "compose.log")
                                               (compose cfgBdcs cfgPool ci)
@@ -237,11 +238,11 @@ composeServer ServerConfig{..} = do
             void $ waitCatch thread
             removeCompose inProgressRef (ciId ci)
 
-    messagesThread :: IORef InProgressMap -> TVar [ComposeInfo] -> IO ()
+    messagesThread :: IORef InProgressMap -> TVar (Seq ComposeInfo) -> IO ()
     messagesThread inProgressRef worklist = forever $ atomically (readTChan cfgChan) >>= \case
         (AskBuildsWaiting, Just r) -> do
             lst <- atomically $ readTVar worklist
-            atomically $ putTMVar r (RespBuildsWaiting $ map ciId lst)
+            atomically $ putTMVar r (RespBuildsWaiting $ map ciId (toList lst))
 
         (AskBuildsInProgress, Just r) -> do
             -- Get just the ComposeInfo records for all the in-progress composes.
@@ -262,7 +263,7 @@ composeServer ServerConfig{..} = do
         (AskCompose ci, _) ->
             -- Add the new compose to the end of the work queue.  It will eventually
             -- get around to being run by composesThread.
-            atomically $ modifyTVar worklist (++ [ci])
+            atomically $ modifyTVar worklist (|> ci)
 
         (AskDequeueBuild buildId, Just r) -> do
             -- The worklist stores ComposeInfo records, but we only get the UUID from the
@@ -271,9 +272,11 @@ composeServer ServerConfig{..} = do
             -- all the multiprocessing stuff.  Hence the Maybe.
             ci <- atomically $ do
                 lst <- readTVar worklist
-                case find (\e -> ciId e == buildId) lst of
-                    Just ele -> modifyTVar worklist (delete ele) >> return (Just ele)
+                case findIndexL (\e -> ciId e == buildId) lst of
                     Nothing  -> return Nothing
+                    Just ndx -> do let ele = index lst ndx
+                                   modifyTVar worklist (deleteAt ndx)
+                                   return $ Just ele
 
             -- If we found a ComposeInfo, clean it up - remove the results directory
             -- (that doesn't yet have an artifact, but should have some toml files) and
