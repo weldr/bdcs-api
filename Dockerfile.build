@@ -1,6 +1,6 @@
 FROM fedora:28
 
-RUN dnf -y install sudo git cabal-install ostree-devel xz-devel \
+RUN dnf -y install make sudo git cabal-install ostree-devel xz-devel \
                    gobject-introspection-devel libcurl-devel \
                    ghc-haskell-gi-devel libgit2-glib-devel which hlint happy && \
     cabal update && \
