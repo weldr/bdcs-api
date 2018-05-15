@@ -16,7 +16,7 @@
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 
 import           BDCS.API.Server(runServer)
-import           BDCS.API.Version(apiVersion)
+import           BDCS.API.Version(buildVersion)
 import           Cmdline(CliOptions(..),
                          parseArgs)
 import           Control.Monad(when)
@@ -25,6 +25,6 @@ main :: IO ()
 main = do
     opts <- parseArgs
 
-    when (optShowVersion opts) $ putStrLn ("bdcs-api " ++ apiVersion)
+    when (optShowVersion opts) $ putStrLn ("bdcs-api " ++ buildVersion)
 
     runServer (optPort opts) (optBDCS opts) (optRecipeRepo opts) (optMetadataDB opts)

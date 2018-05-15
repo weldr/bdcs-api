@@ -317,17 +317,17 @@ modulesListResponse4 = ModulesListResponse
 checkStatusResponse :: ClientM Bool
 checkStatusResponse = do
     response <- getStatus
-    return $ weldrOK response && schemaOK response && dbOK response && srvSupported response
+    return $ weldrOK response && schemaOK response && dbOK response && srvDbSupported response
   where
     weldrOK :: ServerStatus -> Bool
     weldrOK response = srvBackend response == "weldr"
 
     schemaOK :: ServerStatus -> Bool
-    schemaOK response = srvSchema response == schemaVersion
+    schemaOK response = srvSchemaVersion response == show schemaVersion
 
     -- During testing the schema and the database should always be equal
     dbOK :: ServerStatus -> Bool
-    dbOK response = srvDb response == schemaVersion
+    dbOK response = srvDbVersion response == show schemaVersion
 
 
 

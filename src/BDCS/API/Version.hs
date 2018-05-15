@@ -16,15 +16,15 @@
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 {-# LANGUAGE TemplateHaskell #-}
 
-module BDCS.API.Version(apiVersion)
+module BDCS.API.Version(buildVersion)
   where
 
 import           Data.Version (showVersion)
 import           Development.GitRev
 import           Paths_bdcs_api(version)
 
-apiVersion :: String
-apiVersion = do
+buildVersion :: String
+buildVersion = do
         let git_version = $(gitDescribe)
         if git_version == "UNKNOWN" then
             "v" ++ showVersion version

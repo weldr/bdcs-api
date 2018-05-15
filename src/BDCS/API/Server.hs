@@ -38,7 +38,7 @@ import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Recipes(openOrCreateRepo, commitRecipeDirectory)
 import           BDCS.API.Utils(GitLock(..))
 import           BDCS.API.V0(V0API, v0ApiServer)
-import           BDCS.API.Version(apiVersion)
+import           BDCS.API.Version(buildVersion)
 import           BDCS.DB(schemaVersion, getDbVersion)
 import           Control.Concurrent.Async(Async, async, cancel, replicateConcurrently_, waitCatch)
 import qualified Control.Concurrent.ReadWriteLock as RWL
@@ -49,7 +49,6 @@ import           Control.Monad.Except(runExceptT)
 import           Control.Monad.Logger(runFileLoggingT, runStderrLoggingT)
 import           Control.Monad.STM(atomically)
 import           Data.Aeson
-import           Data.Int(Int64)
 import           Data.IORef(IORef, atomicModifyIORef', newIORef, readIORef)
 import qualified Data.Map as Map
 import           Data.Sequence((|>), Seq(..), deleteAt, empty, findIndexL, index)
@@ -70,28 +69,31 @@ type InProgressMap = Map.Map T.Text (Async (), ComposeInfo)
 
 -- | The status of the server, the database, and the API.
 data ServerStatus = ServerStatus
-  {  srvBackend   :: String                                     -- ^ Backend implementation (weldr, lorax-composer)
-  ,  srvVersion   :: String                                     -- ^ Server version
-  ,  srvSchema    :: Int64                                      -- ^ Supported Database Schema version
-  ,  srvDb        :: Int64                                      -- ^ Database version
-  ,  srvSupported :: Bool                                       -- ^ True if the Database is supported by the Server
+  {  srvApi           :: String                                 -- ^ Supported API version
+  ,  srvBackend       :: String                                 -- ^ Backend implementation (weldr, lorax-composer)
+  ,  srvBuild         :: String                                 -- ^ Server build version
+  ,  srvSchemaVersion :: String                                 -- ^ Supported Database Schema version
+  ,  srvDbVersion     :: String                                 -- ^ Database version
+  ,  srvDbSupported   :: Bool                                   -- ^ True if the Database is supported by the Server
   } deriving (Eq, Show)
 
 instance ToJSON ServerStatus where
   toJSON ServerStatus{..} = object
-    [ "backend"   .= srvBackend
-    , "version"   .= srvVersion
-    , "schema"    .= srvSchema
-    , "db"        .= srvDb
-    , "supported" .= srvSupported ]
+    [ "api"            .= srvApi
+    , "backend"        .= srvBackend
+    , "build"          .= srvBuild
+    , "schema_version" .= srvSchemaVersion
+    , "db_version"     .= srvDbVersion
+    , "db_supported"   .= srvDbSupported ]
 
 instance FromJSON ServerStatus where
   parseJSON = withObject "server status" $ \o -> do
-    srvBackend   <- o .: "backend"
-    srvVersion   <- o .: "version"
-    srvSchema    <- o .: "schema"
-    srvDb        <- o .: "db"
-    srvSupported <- o .: "supported"
+    srvApi           <- o .: "api"
+    srvBackend       <- o .: "backend"
+    srvBuild         <- o .: "build"
+    srvSchemaVersion <- o .: "schema_version"
+    srvDbVersion     <- o .: "db_version"
+    srvDbSupported   <- o .: "db_supported"
     return ServerStatus{..}
 
 -- | The /status route
@@ -105,7 +107,7 @@ maxComposes = 1
 serverStatus :: ServerConfig -> Handler ServerStatus
 serverStatus ServerConfig{..} = do
     version <- dbVersion
-    return (ServerStatus "weldr" apiVersion schemaVersion version (schemaVersion == version))
+    return (ServerStatus "0" "weldr" buildVersion (show schemaVersion) (show version) (schemaVersion == version))
   where
     dbVersion = do
         result <- runExceptT $ runSqlPool getDbVersion cfgPool
