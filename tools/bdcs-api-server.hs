@@ -17,9 +17,10 @@
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 
-import           BDCS.API.Server(runServer)
+import           BDCS.API.Server(SocketException(..), runServer)
 import           BDCS.API.Version(buildVersion)
 import           Cmdline(CliOptions(..), parseArgs)
+import qualified Control.Exception.Safe as CES
 import           Control.Monad(when)
 
 main :: IO ()
@@ -28,4 +29,7 @@ main = do
 
     when optShowVersion $ putStrLn ("bdcs-api " ++ buildVersion)
 
-    runServer optSocketPath optBDCS optRecipeRepo optMetadataDB
+    CES.catch (runServer optSocketPath optBDCS optRecipeRepo optMetadataDB)
+              (\e -> case e of
+                         BadFileDescriptor -> putStrLn "Bad value provided in $LISTEN_FDS"
+                         NoSocketError     -> putStrLn "One of $LISTEN_FDS or -s <socket> must be provided")

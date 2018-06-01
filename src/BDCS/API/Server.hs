@@ -30,7 +30,8 @@
 module BDCS.API.Server(mkApp,
                        proxyAPI,
                        runServer,
-                       ServerStatus(..))
+                       ServerStatus(..),
+                       SocketException(..))
   where
 
 import           BDCS.API.Compose(ComposeInfo(..), ComposeMsgAsk(..), ComposeMsgResp(..), compose)
@@ -45,6 +46,7 @@ import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Concurrent.STM.TChan(newTChan, readTChan)
 import           Control.Concurrent.STM.TMVar(TMVar, newTMVar, putTMVar, readTMVar, takeTMVar)
 import           Control.Conditional(whenM)
+import qualified Control.Exception.Safe as CES
 import           Control.Monad(forever, void)
 import           Control.Monad.Except(runExceptT)
 import           Control.Monad.Logger(runFileLoggingT, runStderrLoggingT)
@@ -69,6 +71,12 @@ import           System.Environment(lookupEnv)
 import           System.FilePath.Posix((</>))
 import           System.Posix.Files(setFileMode)
 import           Text.Read(readMaybe)
+
+data SocketException = BadFileDescriptor
+                     | NoSocketError
+ deriving(Show)
+
+instance CES.Exception SocketException
 
 type InProgressMap = Map.Map T.Text (Async (), ComposeInfo)
 
@@ -190,10 +198,9 @@ runServer socketPath bdcsPath gitRepoPath sqliteDbPath = void $ withSocketsDo $ 
  where
     getSocket :: FilePath -> IO Socket
     getSocket fp = lookupEnv "LISTEN_FDS" >>= \case
-        Nothing -> if fp == "" then error "One of $LISTEN_FDS or -s <socket> must be provided"
-                               else newSocket fp
+        Nothing -> if fp == "" then CES.throw NoSocketError else newSocket fp
         Just s  -> case readMaybe s of
-            Nothing -> error $ "Could not convert to a file descriptor: " ++ s
+            Nothing -> CES.throw BadFileDescriptor
             Just fd -> mkSocket fd AF_UNIX Stream defaultProtocol Bound
 
     newSocket :: FilePath -> IO Socket
