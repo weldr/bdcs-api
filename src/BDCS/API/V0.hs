@@ -85,7 +85,7 @@ import qualified Codec.Archive.Tar as Tar
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Concurrent.STM.TChan(writeTChan)
 import           Control.Concurrent.STM.TMVar(newEmptyTMVar, readTMVar)
-import qualified Control.Exception as CE
+import qualified Control.Exception.Safe as CES
 import           Control.Monad.STM(atomically)
 import           Control.Monad.Except
 import           Data.Aeson
@@ -490,15 +490,15 @@ getRecipeAndCommit repoLock branch recipe_name = do
     -- | Read the recipe from the workspace, and convert WorkspaceErrors into Nothing
     catch_ws_recipe :: IO (Maybe Recipe)
     catch_ws_recipe =
-        CE.catch (workspaceRead (gitRepo repoLock) branch recipe_name)
-                 (\(_ :: WorkspaceError) -> return Nothing)
+        CES.catch (workspaceRead (gitRepo repoLock) branch recipe_name)
+                  (\(_ :: WorkspaceError) -> return Nothing)
 
     -- | Read the recipe from git, and convert errors into Left descriptions of what went wrong.
     catch_git_recipe :: IO (Either String (T.Text, Recipe))
     catch_git_recipe =
-        CE.catches (readRecipeCommit (gitRepo repoLock) branch recipe_name Nothing)
-                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
-                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+        CES.catches (readRecipeCommit (gitRepo repoLock) branch recipe_name Nothing)
+                    [CES.Handler (\(e :: GitError) -> return $ Left (show e)),
+                     CES.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
 -- | Details about commits to a blueprint
@@ -638,9 +638,9 @@ recipesChanges ServerConfig{..} mbranch recipe_names moffset mlimit = liftIO $ R
 
     catch_recipe_changes :: T.Text -> IO (Either String [CommitDetails])
     catch_recipe_changes recipe_name =
-        CE.catches (Right <$> listRecipeCommits (gitRepo cfgRepoLock) (defaultBranch mbranch) recipe_name)
-                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
-                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+        CES.catches (Right <$> listRecipeCommits (gitRepo cfgRepoLock) (defaultBranch mbranch) recipe_name)
+                    [CES.Handler (\(e :: GitError) -> return $ Left (show e)),
+                     CES.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
 -- | POST /api/v0/blueprints/new
@@ -669,9 +669,9 @@ recipesNew ServerConfig{..} mbranch recipe = do
   where
     catch_recipe_new :: IO (Either String Git.OId)
     catch_recipe_new =
-        CE.catches (Right <$> commitRecipe (gitRepo cfgRepoLock) (defaultBranch mbranch) recipe)
-                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
-                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+        CES.catches (Right <$> commitRecipe (gitRepo cfgRepoLock) (defaultBranch mbranch) recipe)
+                    [CES.Handler (\(e :: GitError) -> return $ Left (show e)),
+                     CES.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
 -- | DELETE /api/v0/blueprints/delete/\<recipe\>
@@ -696,9 +696,9 @@ recipesDelete ServerConfig{..} mbranch recipe_name = do
   where
     catch_recipe_delete :: IO (Either String Git.OId)
     catch_recipe_delete =
-        CE.catches (Right <$> deleteRecipe (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name))
-                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
-                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+        CES.catches (Right <$> deleteRecipe (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name))
+                    [CES.Handler (\(e :: GitError) -> return $ Left (show e)),
+                     CES.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
 -- | POST /api/v0/blueprints/undo/\<recipe\>/\<commit\>
@@ -724,9 +724,9 @@ recipesUndo ServerConfig{..} mbranch recipe_name commit = do
   where
     catch_recipe_undo :: IO (Either String Git.OId)
     catch_recipe_undo =
-        CE.catches (Right <$> revertRecipe (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name) (T.pack commit))
-                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
-                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+        CES.catches (Right <$> revertRecipe (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name) (T.pack commit))
+                    [CES.Handler (\(e :: GitError) -> return $ Left (show e)),
+                     CES.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
 -- | POST /api/v0/blueprints/workspace
@@ -754,9 +754,9 @@ recipesWorkspace ServerConfig{..} mbranch recipe = do
   where
     catch_recipe_ws :: IO (Either String ())
     catch_recipe_ws =
-        CE.catches (Right <$> workspaceWrite (gitRepo cfgRepoLock) (defaultBranch mbranch) recipe)
-                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
-                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+        CES.catches (Right <$> workspaceWrite (gitRepo cfgRepoLock) (defaultBranch mbranch) recipe)
+                    [CES.Handler (\(e :: GitError) -> return $ Left (show e)),
+                     CES.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
 -- | DELETE /api/v0/blueprints/workspace/\<recipe\>
@@ -781,9 +781,9 @@ recipesWorkspaceDelete ServerConfig{..} mbranch recipe_name = do
   where
     catch_recipe_delete :: IO (Either String ())
     catch_recipe_delete =
-        CE.catches (Right <$> workspaceDelete (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name))
-                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
-                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+        CES.catches (Right <$> workspaceDelete (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name))
+                    [CES.Handler (\(e :: GitError) -> return $ Left (show e)),
+                     CES.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
 -- | POST /api/v0/blueprints/tag/<blueprint>
@@ -810,9 +810,9 @@ recipesTag ServerConfig{..} mbranch recipe_name =  do
   where
     catch_recipe_tag :: IO (Either String Bool)
     catch_recipe_tag =
-        CE.catches (Right <$> tagRecipeCommit (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name))
-                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
-                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+        CES.catches (Right <$> tagRecipeCommit (gitRepo cfgRepoLock) (defaultBranch mbranch) (T.pack recipe_name))
+                    [CES.Handler (\(e :: GitError) -> return $ Left (show e)),
+                     CES.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
 -- | JSON response for /blueprints/diff
@@ -949,15 +949,15 @@ recipesDiff ServerConfig{..} mbranch recipe_name from_commit to_commit = liftIO 
     -- | Read the recipe from the workspace, and convert WorkspaceErrors into Nothing
     catch_ws_recipe :: T.Text -> IO (Maybe Recipe)
     catch_ws_recipe name =
-        CE.catch (workspaceRead (gitRepo cfgRepoLock) (defaultBranch mbranch) name)
-                 (\(_ :: WorkspaceError) -> return Nothing)
+        CES.catch (workspaceRead (gitRepo cfgRepoLock) (defaultBranch mbranch) name)
+                  (\(_ :: WorkspaceError) -> return Nothing)
 
     -- | Read the recipe from git, and convert errors into Left descriptions of what went wrong.
     catch_git_recipe :: T.Text -> Maybe T.Text -> IO (Either String (T.Text, Recipe))
     catch_git_recipe name commit =
-        CE.catches (readRecipeCommit (gitRepo cfgRepoLock) (defaultBranch mbranch) name commit)
-                   [CE.Handler (\(e :: GitError) -> return $ Left (show e)),
-                    CE.Handler (\(e :: GError) -> return $ Left (show e))]
+        CES.catches (readRecipeCommit (gitRepo cfgRepoLock) (defaultBranch mbranch) name commit)
+                    [CES.Handler (\(e :: GitError) -> return $ Left (show e)),
+                     CES.Handler (\(e :: GError) -> return $ Left (show e))]
 
 
 -- | The blueprint's dependency details
@@ -2213,6 +2213,6 @@ composeImage ServerConfig{..} uuid = do
  where
     readArtifactFile :: FilePath -> IO (Maybe String)
     readArtifactFile dir =
-        CE.catch (Just <$> readFile (dir </> "ARTIFACT"))
-                 (\(_ :: CE.IOException) -> return Nothing)
+        CES.catch (Just <$> readFile (dir </> "ARTIFACT"))
+                  (\(_ :: CES.IOException) -> return Nothing)
     filename fn = cs uuid ++ "-" ++ takeFileName fn

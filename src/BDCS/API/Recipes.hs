@@ -63,7 +63,7 @@ import           BDCS.API.Recipe
 import           BDCS.API.Utils(caseInsensitive, maybeThrow)
 import           BDCS.API.Workspace
 import           Control.Conditional(ifM, whenM)
-import           Control.Exception
+import qualified Control.Exception.Safe as CES
 import           Control.Monad(filterM, unless, void)
 import           Control.Monad.IO.Class(MonadIO)
 import           Control.Monad.Loops(allM)
@@ -136,7 +136,7 @@ data GitError =
   | OIdError                                    -- ^ Error creating a String from an OId
   deriving (Eq, Show)
 
-instance Exception GitError
+instance CES.Exception GitError
 
 -- | Get the branch's HEAD Commit
 --
@@ -1019,7 +1019,7 @@ data TestError =
   | ChangesOrderError
   deriving (Eq, Show)
 
-instance Exception TestError
+instance CES.Exception TestError
 
 -- | Run the Git repository tests with a temporary directory
 runGitRepoTests :: IO Bool
@@ -1047,7 +1047,7 @@ testGitRepo tmpdir = do
     putStrLn "    - Checking Recipe Version"
     erecipe <- readRecipeCommit repo "master" "test-server" Nothing
     let recipe = snd $ head $ rights [erecipe]
-    unless (testRecipe == recipe) (throwIO $ RecipeMismatchError [testRecipe, recipe])
+    unless (testRecipe == recipe) (CES.throwIO $ RecipeMismatchError [testRecipe, recipe])
 
     -- Check that saving a changed recipe, with the same version, bumps it.
     let new_recipe1      = testRecipe { rDescription = "Second commit with same version, should bump" }
@@ -1058,7 +1058,7 @@ testGitRepo tmpdir = do
     putStrLn "    - Checking Modified Recipe's Version"
     erecipe' <- readRecipeCommit repo "master" "test-server" Nothing
     let recipe' = snd $ head $ rights [erecipe']
-    unless (new_recipe1 {rVersion = Just "0.1.3"} == recipe') (throwIO $ RecipeMismatchError [new_recipe1, recipe'])
+    unless (new_recipe1 {rVersion = Just "0.1.3"} == recipe') (CES.throwIO $ RecipeMismatchError [new_recipe1, recipe'])
 
     -- Check that saving a changed recipe, with a completely different version, uses it without bumping.
     let new_recipe2 = testRecipe {rDescription = "Third commit with new version, should just use it",
@@ -1070,12 +1070,12 @@ testGitRepo tmpdir = do
     putStrLn "    - Checking Modified Recipe's Version"
     erecipe'' <- readRecipeCommit repo "master" "test-server" Nothing
     let recipe'' = snd $ head $ rights [erecipe'']
-    unless (new_recipe2 == recipe'') (throwIO $ RecipeMismatchError [new_recipe2, recipe''])
+    unless (new_recipe2 == recipe'') (CES.throwIO $ RecipeMismatchError [new_recipe2, recipe''])
 
     -- List the files on master
     putStrLn "    - Listing the committed files"
     files <- listBranchFiles repo "master"
-    unless (files == testFiles) (throwIO $ FileListError files)
+    unless (files == testFiles) (CES.throwIO $ FileListError files)
 
     -- Get the commits to http-server.toml
     putStrLn "    - List commits to http-server.toml"
@@ -1083,7 +1083,7 @@ testGitRepo tmpdir = do
     -- Should be 1 commit
     let expected_msg_1 = "Recipe http-server.toml, version 0.2.0 saved"
     let msg_1 = cdMessage (head http_commits)
-    unless (msg_1 == expected_msg_1) (throwIO $ HttpCommitError http_commits)
+    unless (msg_1 == expected_msg_1) (CES.throwIO $ HttpCommitError http_commits)
 
     -- delete http-server.toml file
     putStrLn "    - Delete the http-server.toml file"
@@ -1092,7 +1092,7 @@ testGitRepo tmpdir = do
     -- List the files on master
     putStrLn "    - Check that http-server.toml has been deleted"
     files2 <- listBranchFiles repo "master"
-    unless (files2 == testFiles2) (throwIO $ FileListError files2)
+    unless (files2 == testFiles2) (CES.throwIO $ FileListError files2)
 
     -- Revert the delete
     commit_id <- Git.oIdNewFromString (cdCommit $ head http_commits) >>= maybeThrow NewOIdError
@@ -1101,23 +1101,23 @@ testGitRepo tmpdir = do
     -- List the files on master
     putStrLn "    - Check that http-server.toml has been restored"
     files3 <- listBranchFiles repo "master"
-    unless (files3 == testFiles) (throwIO $ FileListError files3)
+    unless (files3 == testFiles) (CES.throwIO $ FileListError files3)
 
     -- tag a commit
     putStrLn "    - Tag most recent commit of http-server.toml"
     ok <- tagRecipeCommit repo "master" "http-server"
-    unless ok (throwIO TagCommitError)
+    unless ok (CES.throwIO TagCommitError)
 
     -- list the commits and check for the tag
     putStrLn "    - Check the Tag"
     commits <- listCommits repo "master" "http-server.toml"
     let revision = cdRevision (head commits)
-    unless (revision == Just 1) (throwIO $ CommitRevisionError commits)
+    unless (revision == Just 1) (CES.throwIO $ CommitRevisionError commits)
 
     -- Make sure the first listed commit is the reverted commit
     let top_commit = cdCommit $ head commits
     revert_hash <- fromJust <$> Git.oIdToString revert_id
-    unless (top_commit == revert_hash) (throwIO ChangesOrderError)
+    unless (top_commit == revert_hash) (CES.throwIO ChangesOrderError)
 
     return True
 
@@ -1139,13 +1139,13 @@ testWorkspace tmpdir = do
     -- Read the Recipe, does it match?
     putStrLn "    - Read Recipe from Workspace for master branch"
     recipe <- workspaceRead repo "master" "test-server" >>= maybeThrow RecipeReadError
-    unless (testRecipe == recipe) (throwIO $ RecipeMismatchError [testRecipe, recipe])
+    unless (testRecipe == recipe) (CES.throwIO $ RecipeMismatchError [testRecipe, recipe])
 
     -- Delete the Recipe, is it gone?
     putStrLn "    - Delete Recipe from Workspace for master branch"
     workspaceDelete repo "master" "test-server"
     dir <- workspaceDir repo "master"
     let filename = dir </> T.unpack (recipeTomlFilename $ T.unpack "test-server")
-    whenM (doesFileExist filename) (throwIO $ DeleteFailedError filename)
+    whenM (doesFileExist filename) (CES.throwIO $ DeleteFailedError filename)
 
     return True
