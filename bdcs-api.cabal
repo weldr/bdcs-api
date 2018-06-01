@@ -57,6 +57,7 @@ library
                         monad-logger >= 0.3.20.2 && < 0.3.28.2,
                         monad-loops >= 0.4.0 && < 0.5,
                         mtl >= 2.2.1 && < 2.3,
+                        network,
                         persistent >= 2.7.0 && < 2.8.0,
                         persistent-sqlite >= 2.6.0 && < 2.7.0,
                         resourcet >= 1.1.9 && < 1.2,

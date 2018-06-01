@@ -30,26 +30,24 @@ import           Text.Printf(printf)
 data CliOptions = CliOptions
     { optVerbose     :: Bool
     , optShowVersion :: Bool
-    , optPort        :: Int
-    , optHostIP      :: String
     , optLogfile     :: FilePath
     , optMockfiles   :: FilePath
     , optBDCS        :: FilePath
     , optMetadataDB  :: FilePath
     , optRecipeRepo  :: FilePath
+    , optSocketPath  :: FilePath
     } deriving Show
 
 defaultOptions :: CliOptions
 defaultOptions    = CliOptions
     { optVerbose     = False
     , optShowVersion = False
-    , optPort        = 4000
-    , optHostIP      = "127.0.0.1"
     , optLogfile     = "/var/log/bdcs-api.log"
     , optMockfiles   = "/var/tmp/bdcs-mockfiles"
     , optBDCS        = "/mddb/cs.repo/"
     , optMetadataDB  = ""
     , optRecipeRepo  = ""
+    , optSocketPath  = ""
     }
 
 cliOptions :: [OptDescr (CliOptions -> CliOptions)]
@@ -60,12 +58,6 @@ cliOptions =
     , Option ['V','?'] ["version"]
         (NoArg (\opts -> opts { optShowVersion = True }))
         "show version number"
-    , Option ['p']     ["port"]
-        (ReqArg (\port opts -> opts { optPort = read port }) "PORT")
-        (printf "Port to bind to (%d)" $ optPort defaultOptions)
-    , Option ['h']     ["host"]
-        (ReqArg (\host opts -> opts { optHostIP = host }) "HOSTNAME|IP")
-        (printf "Host or IP to bind to (%s)" $ optHostIP defaultOptions)
     , Option ['l']     ["log"]
         (ReqArg (\logfile opts -> opts { optLogfile = logfile }) "LOGFILE")
         (printf "Path to JSON logfile (%s)" $ optLogfile defaultOptions)
@@ -75,6 +67,9 @@ cliOptions =
     , Option ['b']     ["bdcs"]
         (ReqArg (\bdcs opts -> opts { optBDCS = bdcs }) "BDCS")
         (printf "Path to the content store directory (%s)" $ optBDCS defaultOptions)
+    , Option ['s']     ["socket"]
+        (ReqArg (\sock opts -> opts { optSocketPath = sock }) "SOCKET")
+        (printf "Path to a UNIX socket")
     ]
 
 cliHeader :: String

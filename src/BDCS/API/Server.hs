@@ -44,6 +44,7 @@ import           Control.Concurrent.Async(Async, async, cancel, replicateConcurr
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Concurrent.STM.TChan(newTChan, readTChan)
 import           Control.Concurrent.STM.TMVar(TMVar, newTMVar, putTMVar, readTMVar, takeTMVar)
+import           Control.Conditional(whenM)
 import           Control.Monad(forever, void)
 import           Control.Monad.Except(runExceptT)
 import           Control.Monad.Logger(runFileLoggingT, runStderrLoggingT)
@@ -58,12 +59,16 @@ import           Database.Persist.Sqlite
 import           GHC.Conc(retry)
 import           GHC.Exts(toList)
 import qualified GI.Ggit as Git
+import           Network.Socket
 import           Network.Wai
 import           Network.Wai.Handler.Warp
 import           Network.Wai.Middleware.Cors
 import           Servant
-import           System.Directory(createDirectoryIfMissing, removePathForcibly)
+import           System.Directory(createDirectoryIfMissing, doesPathExist, removePathForcibly)
+import           System.Environment(lookupEnv)
 import           System.FilePath.Posix((</>))
+import           System.Posix.Files(setFileMode)
+import           Text.Read(readMaybe)
 
 type InProgressMap = Map.Map T.Text (Async (), ComposeInfo)
 
@@ -140,10 +145,10 @@ appCors = cors (const $ Just policy)
 proxyAPI :: Proxy CombinedAPI
 proxyAPI = Proxy
 
-app :: ServerConfig -> Application
-app cfg = appCors
-        $ serve proxyAPI
-        $ combinedServer cfg
+application :: ServerConfig -> Application
+application cfg = appCors
+                $ serve proxyAPI
+                $ combinedServer cfg
 
 -- | Create the server app
 --
@@ -174,11 +179,33 @@ mkApp bdcsPath gitRepoPath sqliteDbPath = do
     -- client uses a different route to check and fetch the results.
     void $ async $ composeServer cfg
 
-    return $ app cfg
+    return $ application cfg
 
 -- | Run the API server
-runServer :: Int -> FilePath -> FilePath -> FilePath -> IO ()
-runServer port bdcsPath gitRepoPath sqliteDbPath = run port =<< mkApp bdcsPath gitRepoPath sqliteDbPath
+runServer :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
+runServer socketPath bdcsPath gitRepoPath sqliteDbPath = void $ withSocketsDo $ do
+    sock <- getSocket socketPath
+    app  <- mkApp bdcsPath gitRepoPath sqliteDbPath
+    runSettingsSocket defaultSettings sock app
+ where
+    getSocket :: FilePath -> IO Socket
+    getSocket fp = lookupEnv "LISTEN_FDS" >>= \case
+        Nothing -> if fp == "" then error "One of $LISTEN_FDS or -s <socket> must be provided"
+                               else newSocket fp
+        Just s  -> case readMaybe s of
+            Nothing -> error $ "Could not convert to a file descriptor: " ++ s
+            Just fd -> mkSocket fd AF_UNIX Stream defaultProtocol Bound
+
+    newSocket :: FilePath -> IO Socket
+    newSocket path = do
+        whenM (doesPathExist path) $
+            removePathForcibly path
+
+        s <- socket AF_UNIX Stream defaultProtocol
+        bind s (SockAddrUnix path)
+        listen s 1
+        setFileMode path 0o660
+        return s
 
 composeServer :: ServerConfig -> IO ()
 composeServer ServerConfig{..} = do

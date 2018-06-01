@@ -27,4 +27,4 @@ main = do
 
     when (optShowVersion opts) $ putStrLn ("bdcs-api " ++ buildVersion)
 
-    runServer (optPort opts) (optBDCS opts) (optRecipeRepo opts) (optMetadataDB opts)
+    runServer (optSocketPath opts) (optBDCS opts) (optRecipeRepo opts) (optMetadataDB opts)
