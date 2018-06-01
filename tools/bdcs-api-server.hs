@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+
 -- Copyright (C) 2017 Red Hat, Inc.
 --
 -- This file is part of bdcs-api.
@@ -17,14 +19,13 @@
 
 import           BDCS.API.Server(runServer)
 import           BDCS.API.Version(buildVersion)
-import           Cmdline(CliOptions(..),
-                         parseArgs)
+import           Cmdline(CliOptions(..), parseArgs)
 import           Control.Monad(when)
 
 main :: IO ()
 main = do
-    opts <- parseArgs
+    CliOptions{..} <- parseArgs
 
-    when (optShowVersion opts) $ putStrLn ("bdcs-api " ++ buildVersion)
+    when optShowVersion $ putStrLn ("bdcs-api " ++ buildVersion)
 
-    runServer (optSocketPath opts) (optBDCS opts) (optRecipeRepo opts) (optMetadataDB opts)
+    runServer optSocketPath optBDCS optRecipeRepo optMetadataDB
