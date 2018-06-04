@@ -69,10 +69,12 @@ import           Servant
 import           System.Directory(createDirectoryIfMissing, doesPathExist, removePathForcibly)
 import           System.Environment(lookupEnv)
 import           System.FilePath.Posix((</>))
-import           System.Posix.Files(setFileMode)
+import           System.Posix.Files(setFileMode, setOwnerAndGroup)
+import           System.Posix.User(GroupEntry(..), getGroupEntryForName)
 import           Text.Read(readMaybe)
 
 data SocketException = BadFileDescriptor
+                     | BadGroup String
                      | NoSocketError
  deriving(Show)
 
@@ -190,8 +192,8 @@ mkApp bdcsPath gitRepoPath sqliteDbPath = do
     return $ application cfg
 
 -- | Run the API server
-runServer :: FilePath -> FilePath -> FilePath -> FilePath -> IO ()
-runServer socketPath bdcsPath gitRepoPath sqliteDbPath = void $ withSocketsDo $ do
+runServer :: FilePath -> String -> FilePath -> FilePath -> FilePath -> IO ()
+runServer socketPath socketGroup bdcsPath gitRepoPath sqliteDbPath = void $ withSocketsDo $ do
     sock <- getSocket socketPath
     app  <- mkApp bdcsPath gitRepoPath sqliteDbPath
     runSettingsSocket defaultSettings sock app
@@ -208,10 +210,14 @@ runServer socketPath bdcsPath gitRepoPath sqliteDbPath = void $ withSocketsDo $ 
         whenM (doesPathExist path) $
             removePathForcibly path
 
+        gid <- CES.catchIO (groupID <$> getGroupEntryForName socketGroup)
+                           (\_ -> CES.throw $ BadGroup socketGroup)
+
         s <- socket AF_UNIX Stream defaultProtocol
         bind s (SockAddrUnix path)
         listen s 1
         setFileMode path 0o660
+        setOwnerAndGroup path 0 gid
         return s
 
 composeServer :: ServerConfig -> IO ()

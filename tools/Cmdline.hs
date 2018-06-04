@@ -36,6 +36,7 @@ data CliOptions = CliOptions
     , optMetadataDB  :: FilePath
     , optRecipeRepo  :: FilePath
     , optSocketPath  :: FilePath
+    , optSocketGroup :: String
     } deriving Show
 
 defaultOptions :: CliOptions
@@ -48,6 +49,7 @@ defaultOptions    = CliOptions
     , optMetadataDB  = ""
     , optRecipeRepo  = ""
     , optSocketPath  = ""
+    , optSocketGroup = "weldr"
     }
 
 cliOptions :: [OptDescr (CliOptions -> CliOptions)]
@@ -70,6 +72,9 @@ cliOptions =
     , Option ['s']     ["socket"]
         (ReqArg (\sock opts -> opts { optSocketPath = sock }) "SOCKET")
         (printf "Path to a UNIX socket")
+    , Option ['g']     ["group"]
+        (ReqArg (\grp opts  -> opts { optSocketGroup = grp }) "GROUP")
+        (printf "Group to set ownership of the socket to")
     ]
 
 cliHeader :: String

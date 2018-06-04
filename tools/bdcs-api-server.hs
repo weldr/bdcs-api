@@ -29,7 +29,8 @@ main = do
 
     when optShowVersion $ putStrLn ("bdcs-api " ++ buildVersion)
 
-    CES.catch (runServer optSocketPath optBDCS optRecipeRepo optMetadataDB)
+    CES.catch (runServer optSocketPath optSocketGroup optBDCS optRecipeRepo optMetadataDB)
               (\e -> case e of
                          BadFileDescriptor -> putStrLn "Bad value provided in $LISTEN_FDS"
+                         BadGroup g        -> putStrLn $ "Provided group does not exist: " ++ g
                          NoSocketError     -> putStrLn "One of $LISTEN_FDS or -s <socket> must be provided")
