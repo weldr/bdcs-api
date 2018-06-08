@@ -34,7 +34,7 @@ module BDCS.API.Workspace(workspaceRead,
 import           BDCS.API.Recipe(Recipe(..), parseRecipe, recipeTOML, recipeTomlFilename)
 import           BDCS.API.Utils(maybeThrow)
 import           Control.Conditional(ifM, whenM)
-import qualified Control.Exception.Safe as CES
+import qualified Control.Exception as CE
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           GI.Gio(fileGetPath)
@@ -48,7 +48,7 @@ data WorkspaceError =
   | ParseRecipeError String     -- ^ There was an error parsing the recipe, details will be included
   deriving (Eq, Show)
 
-instance CES.Exception WorkspaceError
+instance CE.Exception WorkspaceError
 
 -- | Create the branch's workspace path
 --
@@ -81,7 +81,7 @@ workspaceRead repo branch recipe_name = do
         toml_in <- TIO.readFile filename
         let erecipe = parseRecipe toml_in
         case erecipe of
-            Left e       -> CES.throwIO $ ParseRecipeError e
+            Left e       -> CE.throwIO $ ParseRecipeError e
             Right recipe -> return recipe
 
 -- | Write a 'Recipe' to the branch's workspace

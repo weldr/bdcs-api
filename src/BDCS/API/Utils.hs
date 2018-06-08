@@ -28,7 +28,7 @@ module BDCS.API.Utils(applyLimits,
   where
 
 import qualified Control.Concurrent.ReadWriteLock as RWL
-import qualified Control.Exception.Safe as CES
+import qualified Control.Exception as CE
 import           Control.Monad (liftM)
 import           Data.List.Split (splitOn)
 import qualified Data.Text as T
@@ -46,11 +46,11 @@ data GitLock = GitLock
 
 -- | Turn exceptions from an action into 'Nothing'
 maybeIO :: IO a -> IO (Maybe a)
-maybeIO act = CES.handle (\(_ :: CES.SomeException) -> (return Nothing)) (Just `liftM` act)
+maybeIO act = CE.handle (\(_ :: CE.SomeException) -> (return Nothing)) (Just `liftM` act)
 
 -- | Throw an IO error when a 'Maybe' is 'Nothing'
-maybeThrow :: CES.Exception e => e -> Maybe a -> IO a
-maybeThrow err Nothing = CES.throwIO err
+maybeThrow :: CE.Exception e => e -> Maybe a -> IO a
+maybeThrow err Nothing = CE.throwIO err
 maybeThrow _ (Just v)  = return v
 
 -- | Take a list of possiby comma, or comma-space, separated options and turn it into a list of options

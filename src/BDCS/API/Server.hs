@@ -46,7 +46,7 @@ import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Concurrent.STM.TChan(newTChan, readTChan)
 import           Control.Concurrent.STM.TMVar(TMVar, newTMVar, putTMVar, readTMVar, takeTMVar)
 import           Control.Conditional(whenM)
-import qualified Control.Exception.Safe as CES
+import qualified Control.Exception as CE
 import           Control.Monad(forever, void)
 import           Control.Monad.Except(runExceptT)
 import           Control.Monad.Logger(runFileLoggingT, runStderrLoggingT)
@@ -78,7 +78,7 @@ data SocketException = BadFileDescriptor
                      | NoSocketError
  deriving(Show)
 
-instance CES.Exception SocketException
+instance CE.Exception SocketException
 
 type InProgressMap = Map.Map T.Text (Async (), ComposeInfo)
 
@@ -200,9 +200,9 @@ runServer socketPath socketGroup bdcsPath gitRepoPath sqliteDbPath = void $ with
  where
     getSocket :: FilePath -> IO Socket
     getSocket fp = lookupEnv "LISTEN_FDS" >>= \case
-        Nothing -> if fp == "" then CES.throw NoSocketError else newSocket fp
+        Nothing -> if fp == "" then CE.throw NoSocketError else newSocket fp
         Just s  -> case readMaybe s of
-            Nothing -> CES.throw BadFileDescriptor
+            Nothing -> CE.throw BadFileDescriptor
             Just fd -> mkSocket fd AF_UNIX Stream defaultProtocol Bound
 
     newSocket :: FilePath -> IO Socket
@@ -210,8 +210,8 @@ runServer socketPath socketGroup bdcsPath gitRepoPath sqliteDbPath = void $ with
         whenM (doesPathExist path) $
             removePathForcibly path
 
-        gid <- CES.catchIO (groupID <$> getGroupEntryForName socketGroup)
-                           (\_ -> CES.throw $ BadGroup socketGroup)
+        gid <- CE.catch (groupID <$> getGroupEntryForName socketGroup)
+                        (\(_ :: CE.IOException) -> CE.throw $ BadGroup socketGroup)
 
         s <- socket AF_UNIX Stream defaultProtocol
         bind s (SockAddrUnix path)

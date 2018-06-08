@@ -43,7 +43,7 @@ import           BDCS.Export.Customize(Customization)
 import           BDCS.Export.Types(ExportType(..))
 import           BDCS.Utils.Either(maybeToEither)
 import           Control.Conditional(ifM)
-import qualified Control.Exception.Safe as CES
+import qualified Control.Exception as CE
 import           Control.Monad(filterM)
 import           Control.Monad.Except(ExceptT(..), runExceptT)
 import           Control.Monad.Logger(MonadLoggerIO, logErrorN, logInfoN)
@@ -169,9 +169,9 @@ deleteCompose dir uuid =
             then return $ Left $ "Build " ++ cs uuid ++ " not in FINISHED or FAILED"
             else do
                 let path = dir </> cs uuid
-                CES.catch (do removePathForcibly path
-                              return $ Right UuidStatus { usStatus=True, usUuid=uuid })
-                          (\(e :: CES.IOException) -> return $ Left $ cs uuid ++ ": " ++ cs (show e))
+                CE.catch (do removePathForcibly path
+                             return $ Right UuidStatus { usStatus=True, usUuid=uuid })
+                         (\(e :: CE.IOException) -> return $ Left $ cs uuid ++ ": " ++ cs (show e))
 
 getComposesWithStatus :: FilePath -> QueueStatus -> IO [ComposeStatus]
 getComposesWithStatus resultsDir status = do
@@ -188,8 +188,8 @@ getComposesWithStatus resultsDir status = do
     matches uuid = do
         let statusFile = resultsDir </> cs uuid </> "STATUS"
         ifM (doesFileExist statusFile)
-            (do line <- CES.catch (TIO.readFile statusFile)
-                                  (\(_ :: CES.IOException) -> return "")
+            (do line <- CE.catch (TIO.readFile statusFile)
+                                 (\(_ :: CE.IOException) -> return "")
                 return $ queueStatusFromText line == Just status)
             (return False)
 

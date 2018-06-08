@@ -77,7 +77,6 @@ library
                         persistent >= 2.7.0 && < 2.8.0,
                         persistent-sqlite >= 2.6.0 && < 2.7.0,
                         resourcet >= 1.1.9 && < 1.2,
-                        safe-exceptions < 0.2.0.0,
                         semver >= 0.3.3 && < 0.4,
                         servant-options >= 0.1.0 && < 0.2,
                         servant-server >= 0.12 && < 0.14,
@@ -105,8 +104,7 @@ executable bdcs-api-server
     main-is:            bdcs-api-server.hs
     hs-source-dirs:     tools
     build-depends:      base >= 4.9 && < 5.0,
-                        bdcs-api,
-                        safe-exceptions < 0.2.0.0
+                        bdcs-api
     other-modules:      Cmdline
     default-language:   Haskell2010
     ghc-options:        -Wall -threaded
@@ -126,7 +124,6 @@ test-suite spec
                         hspec == 2.*,
                         http-client >= 0.5.7.0 && < 0.6.0.0,
                         monad-loops >= 0.4.0 && < 0.5,
-                        safe-exceptions < 0.2.0.0,
                         servant-client >= 0.12.0.1 && < 0.14.0,
                         servant-server >= 0.12 && < 0.14,
                         string-conversions >= 0.4.0 && < 0.5,

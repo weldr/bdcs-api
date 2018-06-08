@@ -25,7 +25,7 @@ module BDCS.API.Error(createAPIError,
                       APIResponse(..))
   where
 
-import qualified Control.Exception.Safe as CES
+import qualified Control.Exception as CE
 import           Control.Monad.Except(ExceptT(..))
 import           Control.Monad.IO.Class(liftIO)
 import           Data.Aeson
@@ -76,5 +76,5 @@ createAPIError base status messages = base { errBody=apiError, errHeaders=[jsonC
 
 -- | Convert IO Exceptions into an ExceptT.
 tryIO :: IO a -> ExceptT String IO a
-tryIO fn = ExceptT $ liftIO $ CES.catch (Right <$> fn)
-                                        (\(e :: CES.IOException) -> return $ Left (show e))
+tryIO fn = ExceptT $ liftIO $ CE.catch (Right <$> fn)
+                                       (\(e :: CE.IOException) -> return $ Left (show e))

@@ -28,7 +28,7 @@ import           BDCS.API.Server
 import           BDCS.API.V0
 import           BDCS.DB(Projects(..), schemaVersion)
 import           Control.Conditional(whenM)
-import           Control.Exception.Safe(throwIO)
+import           Control.Exception(throwIO)
 import           Control.Monad.Loops(allM)
 import qualified Data.ByteString.Lazy as LBS
 import           Data.List(isSuffixOf)
