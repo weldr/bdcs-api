@@ -32,7 +32,7 @@ import           Text.Printf(printf)
 import           Text.Toml(parseTomlDoc)
 
 
- -- | Information about the compose configuration not available in other results files
+-- | Information about the compose configuration not available in other results files
 data ComposeConfig = ComposeConfig {
     ccCommit       :: T.Text,                                           -- ^ Commit hash for Blueprint
     ccExportType   :: ExportType                                        -- ^ Export type
