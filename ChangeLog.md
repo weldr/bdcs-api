@@ -1,3 +1,7 @@
+## 0.1.2
+
+* Fix building the documentation with haddock.
+
 ## 0.1.1
 
 * Remove the build dependency on safe-exceptions.
