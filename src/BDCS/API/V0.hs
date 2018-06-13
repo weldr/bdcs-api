@@ -42,6 +42,7 @@ module BDCS.API.V0(BuildInfo(..),
                Metadata(..),
                ModuleName(..),
                ModulesListResponse(..),
+               ModulesInfoResponse(..),
                PackageNEVRA(..),
                ProjectInfo(..),
                ProjectsDepsolveResponse(..),
@@ -183,6 +184,8 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                   :> QueryParam "offset" Int
                                   :> QueryParam "limit" Int
                                   :> Get '[JSON] ModulesListResponse
+        :<|> "modules"  :> "info" :> Capture "module_names" String
+                                  :> Get '[JSON] ModulesInfoResponse
         :<|> "compose"  :> ReqBody '[JSON] ComposeBody
                         :> QueryParam "test" Int
                         :> Post '[JSON] ComposeResponse
@@ -222,6 +225,7 @@ v0ApiServer cfg = projectsListH
              :<|> recipesFreezeH
              :<|> modulesListH
              :<|> modulesListFilteredH
+             :<|> modulesInfoH
              :<|> composeH
              :<|> composeTypesH
              :<|> composeQueueH
@@ -251,6 +255,7 @@ v0ApiServer cfg = projectsListH
     recipesFreezeH recipes branch                    = recipesFreeze cfg branch recipes
     modulesListH offset limit                        = modulesList cfg offset limit "*"
     modulesListFilteredH module_names offset limit   = modulesList cfg offset limit module_names
+    modulesInfoH module_names                        = modulesInfo cfg (T.splitOn "," $ cs module_names)
     composeH body test                               = compose cfg body test
     composeTypesH                                    = composeTypes
     composeQueueH                                    = composeQueue cfg
@@ -1700,6 +1705,106 @@ modulesList ServerConfig{..} moffset mlimit module_names = do
     -- | Return the limit or the default
     limit :: Int
     limit  = fromMaybe 20 mlimit
+
+-- | /api/v0/modules/info/<module_names>
+-- Return the module's dependencies, and the information about the module.
+--
+-- > {
+-- >   "modules": [
+-- >     {
+-- >       "dependencies": [
+-- >         {
+-- >           "arch": "noarch",
+-- >           "epoch": "0",
+-- >           "name": "basesystem",
+-- >           "release": "7.el7",
+-- >           "version": "10.0"
+-- >         },
+-- >         {
+-- >           "arch": "x86_64",
+-- >           "epoch": "0",
+-- >           "name": "bash",
+-- >           "release": "28.el7",
+-- >           "version": "4.2.46"
+-- >         },
+-- >         ...
+-- >       ],
+-- >       "description": "The GNU tar program saves ...",
+-- >       "homepage": "http://www.gnu.org/software/tar/",
+-- >       "name": "tar",
+-- >       "summary": "A GNU file archiving program",
+-- >       "upstream_vcs": "UPSTREAM_VCS"
+-- >     }
+-- >   ]
+-- > }
+
+data ModuleInfo = ModuleInfo {
+    miDependencies :: [PackageNEVRA],
+    miDescription :: T.Text,
+    miHomepage :: Maybe T.Text,
+    miName :: T.Text,
+    miSummary :: T.Text,
+    miUpstream :: Maybe T.Text
+} deriving (Show, Eq)
+
+instance ToJSON ModuleInfo where
+    toJSON ModuleInfo{..} = object [
+        "dependencies" .= miDependencies,
+        "description"  .= miDescription,
+        "homepage"     .= miHomepage,
+        "name"         .= miName,
+        "summary"      .= miSummary,
+        "upstream_vcs" .= miUpstream ]
+
+instance FromJSON ModuleInfo where
+    parseJSON = withObject "/modules/info module info" $ \o ->
+        ModuleInfo <$> o .: "dependencies"
+                   <*> o .: "description"
+                   <*> o .: "homepage"
+                   <*> o .: "name"
+                   <*> o .: "summary"
+                   <*> o .: "upstream_vcs"
+
+data ModulesInfoResponse = ModulesInfoResponse {
+    mirModules :: [ModuleInfo]
+} deriving (Show, Eq)
+
+instance ToJSON ModulesInfoResponse where
+    toJSON ModulesInfoResponse{..} = object [
+        "modules" .= mirModules ]
+
+instance FromJSON ModulesInfoResponse where
+    parseJSON = withObject "/modules/info response" $ \o ->
+        ModulesInfoResponse <$> o .: "modules"
+
+modulesInfo :: ServerConfig -> [T.Text] -> Handler ModulesInfoResponse
+modulesInfo cfg@ServerConfig{..} modules = do
+    projectInfos <- concatMap pipProjects <$> mapM getProjectsInfo modules
+    depResults   <- mapM getDependencies projectInfos
+    return ModulesInfoResponse { mirModules=map (\(pI, deps) -> addDependencies deps (projectInfoToModuleInfo pI))
+                                                (zip projectInfos depResults) }
+ where
+    addDependencies :: [PackageNEVRA] -> ModuleInfo -> ModuleInfo
+    addDependencies deps mI = mI { miDependencies=deps }
+
+    getDependencies :: ProjectInfo -> Handler [PackageNEVRA]
+    getDependencies ProjectInfo{..} = removeSelfDep piName . pdrProjects <$> projectsDepsolve cfg (cs piName)
+
+    getProjectsInfo :: T.Text -> Handler ProjectsInfoResponse
+    getProjectsInfo name = projectsInfo cfg (cs name)
+
+    removeSelfDep :: T.Text -> [PackageNEVRA] -> [PackageNEVRA]
+    removeSelfDep name nevras =
+        filter (\PackageNEVRA{..} -> pnName /= name) nevras
+
+    projectInfoToModuleInfo :: ProjectInfo -> ModuleInfo
+    projectInfoToModuleInfo ProjectInfo{..} =
+        ModuleInfo { miDependencies=[],
+                     miDescription=piDescription,
+                     miHomepage=piHomepage,
+                     miName=piName,
+                     miSummary=piSummary,
+                     miUpstream=piUpstream }
 
 data ComposeBody = ComposeBody {
     cbName :: T.Text,                                                   -- ^ Recipe name (from /blueprints/list)
