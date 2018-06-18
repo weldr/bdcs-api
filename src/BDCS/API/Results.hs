@@ -5,6 +5,7 @@
 
 module BDCS.API.Results(guardReturnResults,
                         returnImage,
+                        returnImageLocation,
                         returnResults)
  where
 
@@ -34,13 +35,16 @@ guardReturnResults ServerConfig{..} uuid = do
             else return s
 
 returnImage :: ServerConfig -> String -> Handler (FilePath, LBS.ByteString)
-returnImage cfg@ServerConfig{..} uuid = do
-    ComposeStatus{..} <- guardReturnResults cfg (cs uuid)
-
-    liftIO (readArtifactFile $ cfgResultsDir </> cs uuid) >>= \case
+returnImage cfg@ServerConfig{..} uuid =
+    returnImageLocation cfg uuid >>= \case
         Nothing -> throwError $ createAPIError err400 False ["Build " ++ cs uuid ++ " is missing image file."]
         Just fn -> do contents <- liftIO $ LBS.readFile (cfgResultsDir </> fn)
                       return (fn, contents)
+
+returnImageLocation :: ServerConfig -> String -> Handler (Maybe FilePath)
+returnImageLocation cfg@ServerConfig{..} uuid = do
+    ComposeStatus{..} <- guardReturnResults cfg (cs uuid)
+    liftIO $ readArtifactFile $ cfgResultsDir </> cs uuid
  where
     readArtifactFile :: FilePath -> IO (Maybe String)
     readArtifactFile dir =
