@@ -81,6 +81,7 @@ getComposeDelete :: String -> ClientM ComposeDeleteResponse
 getComposeLogs :: String -> ClientM (Headers '[Header "Content-Disposition" String] LBS.ByteString)
 getComposeImage :: String -> ClientM (Headers '[Header "Content-Disposition" String] LBS.ByteString)
 getComposeMetadata :: String -> ClientM (Headers '[Header "Content-Disposition" String] LBS.ByteString)
+getComposeResults :: String -> ClientM (Headers '[Header "Content-Disposition" String] LBS.ByteString)
 getStatus :<|> getProjectsList :<|> getProjectsInfo :<|> getProjectsDepsolve
           :<|> getRecipes :<|> getRecipesInfo :<|> getRecipesChanges
           :<|> postRecipesNew :<|> deleteRecipes :<|> postRecipesUndo
@@ -89,7 +90,7 @@ getStatus :<|> getProjectsList :<|> getProjectsInfo :<|> getProjectsDepsolve
           :<|> getModulesList' :<|> getModulesInfo :<|> getCompose :<|> getComposeTypes :<|> getComposeQueue
           :<|> getComposeQueueFinished :<|> getComposeQueueFailed :<|> getComposeStatus :<|> getComposeInfo
           :<|> getComposeCancel :<|> getComposeDelete :<|> getComposeLogs :<|> getComposeImage
-          :<|> getComposeMetadata = client proxyAPI
+          :<|> getComposeMetadata :<|> getComposeResults = client proxyAPI
 
 
 -- Test results, depends on the contents of the ./tests/recipes files.

@@ -71,7 +71,7 @@ import           BDCS.API.Error(APIResponse(..), createAPIError, tryIO)
 import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusText)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
-import           BDCS.API.Results(returnImage, returnResults)
+import           BDCS.API.Results(returnImage, returnImageLocation, returnResults)
 import           BDCS.API.TOMLMediaType
 import           BDCS.API.Utils(GitLock(..), applyLimits, argify, caseInsensitive, caseInsensitiveT)
 import           BDCS.API.Workspace
@@ -207,6 +207,8 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                     :> Get '[OctetStream] (Headers '[Header "Content-Disposition" String] LBS.ByteString)
         :<|> "compose"  :> "metadata" :> Capture "uuid" String
                                       :> Get '[OctetStream] (Headers '[Header "Content-Disposition" String] LBS.ByteString)
+        :<|> "compose"  :> "results" :> Capture "uuid" String
+                                     :> Get '[OctetStream] (Headers '[Header "Content-Disposition" String] LBS.ByteString)
 
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: ServerConfig -> Server V0API
@@ -240,6 +242,7 @@ v0ApiServer cfg = projectsListH
              :<|> composeLogsH
              :<|> composeImageH
              :<|> composeMetadataH
+             :<|> composeResultsH
   where
     projectsListH offset limit                       = projectsList cfg offset limit
     projectsInfoH project_names                      = projectsInfo cfg project_names
@@ -271,6 +274,7 @@ v0ApiServer cfg = projectsListH
     composeLogsH uuid                                = composeLogs cfg uuid
     composeImageH uuid                               = composeImage cfg (cs uuid)
     composeMetadataH uuid                            = composeMetadata cfg (cs uuid)
+    composeResultsH uuid                             = composeResults cfg (cs uuid)
 
 -- | The JSON response for /blueprints/list
 data RecipesListResponse = RecipesListResponse {
@@ -2318,3 +2322,21 @@ composeImage serverConf uuid = do
 composeMetadata :: KnownSymbol h => ServerConfig -> String -> Handler (Headers '[Header h String] LBS.ByteString)
 composeMetadata serverConf uuid =
     returnResults serverConf uuid (Just "-metadata") ["blueprint.toml", "compose.toml", "frozen.toml"]
+
+
+-- | /api/v0/compose/results/<uuid>
+--
+-- Returns a .tar of the metadata, logs, and output image of the build. This
+-- includes all the information needed to reproduce the build, including the
+-- final kickstart populated with repository and package NEVRA. The output image
+-- is already in compressed form so the returned tar is not compressed.
+--
+-- The mime type is set to 'application/x-tar' and the filename is set to
+-- UUID.tar
+composeResults :: KnownSymbol h => ServerConfig -> String -> Handler (Headers '[Header h String] LBS.ByteString)
+composeResults serverConf uuid = do
+    imageLocation <- returnImageLocation serverConf uuid
+
+    case imageLocation of
+        Just loc -> returnResults serverConf uuid Nothing ["compose.log", "blueprint.toml", "compose.toml", "frozen.toml", takeFileName loc]
+        Nothing  -> throwError $ createAPIError err400 False ["Build " ++ cs uuid ++ " is missing image file."]
