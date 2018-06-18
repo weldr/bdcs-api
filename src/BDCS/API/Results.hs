@@ -47,7 +47,7 @@ returnImage cfg@ServerConfig{..} uuid = do
         CE.catch (Just <$> readFile (dir </> "ARTIFACT"))
                  (\(_ :: CE.IOException) -> return Nothing)
 
-returnResults :: KnownSymbol h => ServerConfig -> String -> FilePath -> [FilePath] -> Handler (Headers '[Header h String] LBS.ByteString)
+returnResults :: KnownSymbol h => ServerConfig -> String -> Maybe FilePath -> [FilePath] -> Handler (Headers '[Header h String] LBS.ByteString)
 returnResults cfg@ServerConfig{..} uuid resultSuffix files = do
     let composeResultsDir = cfgResultsDir </> cs uuid
 
@@ -55,4 +55,6 @@ returnResults cfg@ServerConfig{..} uuid resultSuffix files = do
     files'            <- filterM (\f -> liftIO $ doesFileExist (composeResultsDir </> f)) files
     tar               <- liftIO $ Tar.pack composeResultsDir files'
 
-    return $ addHeader ("attachment; filename=" ++ uuid ++ "-" ++ resultSuffix ++ ".tar;") (Tar.write tar)
+    case resultSuffix of
+        Just suffix -> return $ addHeader ("attachment; filename=" ++ uuid ++ "-" ++ suffix ++ ".tar;") (Tar.write tar)
+        Nothing     -> return $ addHeader ("attachment; filename=" ++ uuid ++ ".tar;") (Tar.write tar)

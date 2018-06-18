@@ -2290,7 +2290,7 @@ composeDelete ServerConfig{..} uuids = do
 -- UUID-logs.tar
 composeLogs :: KnownSymbol h => ServerConfig -> String -> Handler (Headers '[Header h String] LBS.ByteString)
 composeLogs serverConf uuid =
-    returnResults serverConf uuid "-logs" ["compose.log"]
+    returnResults serverConf uuid (Just "-logs") ["compose.log"]
 
 
 -- | /api/v0/compose/image/<uuid>
@@ -2317,4 +2317,4 @@ composeImage serverConf uuid = do
 -- The .tar is uncompressed, but is not large.
 composeMetadata :: KnownSymbol h => ServerConfig -> String -> Handler (Headers '[Header h String] LBS.ByteString)
 composeMetadata serverConf uuid =
-    returnResults serverConf uuid "-metadata" ["blueprint.toml", "compose.toml", "frozen.toml"]
+    returnResults serverConf uuid (Just "-metadata") ["blueprint.toml", "compose.toml", "frozen.toml"]
