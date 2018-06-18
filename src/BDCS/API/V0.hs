@@ -108,7 +108,7 @@ import           Data.UUID.V4(nextRandom)
 import           GHC.TypeLits(KnownSymbol)
 import qualified GI.Ggit as Git
 import           Servant
-import           System.Directory(createDirectoryIfMissing)
+import           System.Directory(createDirectoryIfMissing, doesFileExist)
 import           System.FilePath.Posix((</>), takeFileName)
 
 
@@ -195,7 +195,7 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
         :<|> "compose"  :> "failed" :> Get '[JSON] ComposeFailedResponse
         :<|> "compose"  :> "status" :> Capture "uuids" String
                                     :> Get '[JSON] ComposeStatusResponse
-        :<|> "compose"  :> "info" :> Capture "uuid" String
+        :<|> "compose"  :> "info"   :> Capture "uuid" String
                                     :> Get '[JSON] ComposeInfoResponse
         :<|> "compose"  :> "cancel" :> Capture "uuid" String
                                     :> Delete '[JSON] APIResponse
@@ -205,6 +205,8 @@ type V0API = "projects" :> "list" :> QueryParam "offset" Int
                                     :> Get '[OctetStream] (Headers '[Header "Content-Disposition" String] LBS.ByteString)
         :<|> "compose"  :> "image"  :> Capture "uuid" String
                                     :> Get '[OctetStream] (Headers '[Header "Content-Disposition" String] LBS.ByteString)
+        :<|> "compose"  :> "metadata" :> Capture "uuid" String
+                                      :> Get '[OctetStream] (Headers '[Header "Content-Disposition" String] LBS.ByteString)
 
 -- | Connect the V0API type to all of the handlers
 v0ApiServer :: ServerConfig -> Server V0API
@@ -237,6 +239,7 @@ v0ApiServer cfg = projectsListH
              :<|> composeDeleteH
              :<|> composeLogsH
              :<|> composeImageH
+             :<|> composeMetadataH
   where
     projectsListH offset limit                       = projectsList cfg offset limit
     projectsInfoH project_names                      = projectsInfo cfg project_names
@@ -267,6 +270,7 @@ v0ApiServer cfg = projectsListH
     composeDeleteH uuids                             = composeDelete cfg (T.splitOn "," $ cs uuids)
     composeLogsH uuid                                = composeLogs cfg uuid
     composeImageH uuid                               = composeImage cfg (cs uuid)
+    composeMetadataH uuid                            = composeMetadata cfg (cs uuid)
 
 -- | The JSON response for /blueprints/list
 data RecipesListResponse = RecipesListResponse {
@@ -2209,6 +2213,7 @@ composeInfo ServerConfig{..} uuid = do
     readFrozenBlueprintFile dir = withExceptT (const frozen_error) $
         tryIO (TIO.readFile (dir </> "compose.toml")) >>= ExceptT . return . parseRecipe
 
+
 data ComposeDeleteResponse = ComposeDeleteResponse {
     cdrErrors :: [String],
     cdrUuids  :: [UuidStatus]
@@ -2320,4 +2325,31 @@ composeImage ServerConfig{..} uuid = do
     readArtifactFile dir =
         CE.catch (Just <$> readFile (dir </> "ARTIFACT"))
                  (\(_ :: CE.IOException) -> return Nothing)
+
     filename fn = cs uuid ++ "-" ++ takeFileName fn
+
+-- | /api/v0/compose/metadata/<uuid>
+--
+-- Returns a .tar of the metadata used for the build. This includes all the
+-- information needed to reproduce the build, including the final blueprint
+-- populated with repository and package NEVRA.
+--
+-- The mime type is set to 'application/x-tar' and the filename is set to
+-- UUID-metadata.tar
+--
+-- The .tar is uncompressed, but is not large.
+composeMetadata :: KnownSymbol h => ServerConfig -> String -> Handler (Headers '[Header h String] LBS.ByteString)
+composeMetadata ServerConfig{..} uuid = do
+    result <- liftIO $ runExceptT $ mkComposeStatus cfgResultsDir (cs uuid)
+    case result of
+        Left _                  -> throwError $ createAPIError err400 False ["compose_metadata: " ++ cs uuid ++ " is not a valid build uuid"]
+        Right ComposeStatus{..} ->
+            if not (queueStatusEnded csQueueStatus)
+            then throwError $ createAPIError err400 False ["compose_logs: Build " ++ cs uuid ++ " not in FINISHED or FAILED state."]
+            else do
+                let composeResultsDir = cfgResultsDir </> cs uuid
+                files <- filterM (\f -> liftIO $ doesFileExist (composeResultsDir </> f))
+                                 ["blueprint.toml", "compose.toml", "frozen.toml"]
+
+                tar <- liftIO $ Tar.pack composeResultsDir files
+                return $ addHeader ("attachment; filename=" ++ uuid ++ "-metadata.tar;") (Tar.write tar)
