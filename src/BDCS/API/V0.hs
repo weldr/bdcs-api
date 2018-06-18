@@ -71,6 +71,7 @@ import           BDCS.API.Error(APIResponse(..), createAPIError, tryIO)
 import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusEnded, queueStatusText)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
+import           BDCS.API.Results(returnResults)
 import           BDCS.API.TOMLMediaType
 import           BDCS.API.Utils(GitLock(..), applyLimits, argify, caseInsensitive, caseInsensitiveT)
 import           BDCS.API.Workspace
@@ -82,7 +83,6 @@ import           BDCS.Projects(findProject, getProject, getProjectsLike)
 import           BDCS.Sources(findSources, getSource)
 import           BDCS.Utils.Either(maybeToEither)
 import           BDCS.Utils.Monad(concatMapM, mapMaybeM)
-import qualified Codec.Archive.Tar as Tar
 import qualified Control.Concurrent.ReadWriteLock as RWL
 import           Control.Concurrent.STM.TChan(writeTChan)
 import           Control.Concurrent.STM.TMVar(newEmptyTMVar, readTMVar)
@@ -108,7 +108,7 @@ import           Data.UUID.V4(nextRandom)
 import           GHC.TypeLits(KnownSymbol)
 import qualified GI.Ggit as Git
 import           Servant
-import           System.Directory(createDirectoryIfMissing, doesFileExist)
+import           System.Directory(createDirectoryIfMissing)
 import           System.FilePath.Posix((</>), takeFileName)
 
 
@@ -2289,19 +2289,8 @@ composeDelete ServerConfig{..} uuids = do
 -- The mime type is set to 'application/x-tar' and the filename is set to
 -- UUID-logs.tar
 composeLogs :: KnownSymbol h => ServerConfig -> String -> Handler (Headers '[Header h String] LBS.ByteString)
-composeLogs ServerConfig{..} uuid = do
-    result <- liftIO $ runExceptT $ mkComposeStatus cfgResultsDir (cs uuid)
-    case result of
-        Left _                  -> throwError $ createAPIError err400 False ["compose_logs: " ++ cs uuid ++ " is not a valid build uuid"]
-        Right ComposeStatus{..} ->
-            if not (queueStatusEnded csQueueStatus)
-            then throwError $ createAPIError err400 False ["compose_logs: Build " ++ cs uuid ++ " not in FINISHED or FAILED state."]
-            else do
-                let composeResultsDir = cfgResultsDir </> cs uuid
-                    logFiles          = ["compose.log"]
-
-                tar <- liftIO $ Tar.pack composeResultsDir logFiles
-                return $ addHeader ("attachment; filename=" ++ uuid ++ "-logs.tar;") (Tar.write tar)
+composeLogs serverConf uuid =
+    returnResults serverConf uuid "-logs" ["compose.log"]
 
 
 -- | /api/v0/compose/image/<uuid>
@@ -2328,6 +2317,7 @@ composeImage ServerConfig{..} uuid = do
 
     filename fn = cs uuid ++ "-" ++ takeFileName fn
 
+
 -- | /api/v0/compose/metadata/<uuid>
 --
 -- Returns a .tar of the metadata used for the build. This includes all the
@@ -2339,17 +2329,5 @@ composeImage ServerConfig{..} uuid = do
 --
 -- The .tar is uncompressed, but is not large.
 composeMetadata :: KnownSymbol h => ServerConfig -> String -> Handler (Headers '[Header h String] LBS.ByteString)
-composeMetadata ServerConfig{..} uuid = do
-    result <- liftIO $ runExceptT $ mkComposeStatus cfgResultsDir (cs uuid)
-    case result of
-        Left _                  -> throwError $ createAPIError err400 False ["compose_metadata: " ++ cs uuid ++ " is not a valid build uuid"]
-        Right ComposeStatus{..} ->
-            if not (queueStatusEnded csQueueStatus)
-            then throwError $ createAPIError err400 False ["compose_logs: Build " ++ cs uuid ++ " not in FINISHED or FAILED state."]
-            else do
-                let composeResultsDir = cfgResultsDir </> cs uuid
-                files <- filterM (\f -> liftIO $ doesFileExist (composeResultsDir </> f))
-                                 ["blueprint.toml", "compose.toml", "frozen.toml"]
-
-                tar <- liftIO $ Tar.pack composeResultsDir files
-                return $ addHeader ("attachment; filename=" ++ uuid ++ "-metadata.tar;") (Tar.write tar)
+composeMetadata serverConf uuid =
+    returnResults serverConf uuid "-metadata" ["blueprint.toml", "compose.toml", "frozen.toml"]

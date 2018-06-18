@@ -43,6 +43,7 @@ library
                         BDCS.API.QueueStatus,
                         BDCS.API.Recipe,
                         BDCS.API.Recipes,
+                        BDCS.API.Results,
                         BDCS.API.Server,
                         BDCS.API.TOMLMediaType,
                         BDCS.API.Utils,
