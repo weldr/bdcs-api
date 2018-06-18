@@ -1,7 +1,10 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module BDCS.API.Results(guardReturnResults,
+                        returnImage,
                         returnResults)
  where
 
@@ -10,6 +13,7 @@ import           BDCS.API.Config(ServerConfig(..))
 import           BDCS.API.Error(createAPIError)
 import           BDCS.API.QueueStatus(queueStatusEnded)
 import qualified Codec.Archive.Tar as Tar
+import qualified Control.Exception as CE
 import           Control.Monad(filterM)
 import           Control.Monad.Except(liftIO, runExceptT, throwError)
 import qualified Data.ByteString.Lazy as LBS
@@ -28,6 +32,20 @@ guardReturnResults ServerConfig{..} uuid = do
             if not (queueStatusEnded csQueueStatus)
             then throwError $ createAPIError err400 False ["Build " ++ cs uuid ++ " not in FINISHED or FAILED state."]
             else return s
+
+returnImage :: ServerConfig -> String -> Handler (FilePath, LBS.ByteString)
+returnImage cfg@ServerConfig{..} uuid = do
+    ComposeStatus{..} <- guardReturnResults cfg (cs uuid)
+
+    liftIO (readArtifactFile $ cfgResultsDir </> cs uuid) >>= \case
+        Nothing -> throwError $ createAPIError err400 False ["Build " ++ cs uuid ++ " is missing image file."]
+        Just fn -> do contents <- liftIO $ LBS.readFile (cfgResultsDir </> fn)
+                      return (fn, contents)
+ where
+    readArtifactFile :: FilePath -> IO (Maybe String)
+    readArtifactFile dir =
+        CE.catch (Just <$> readFile (dir </> "ARTIFACT"))
+                 (\(_ :: CE.IOException) -> return Nothing)
 
 returnResults :: KnownSymbol h => ServerConfig -> String -> FilePath -> [FilePath] -> Handler (Headers '[Header h String] LBS.ByteString)
 returnResults cfg@ServerConfig{..} uuid resultSuffix files = do

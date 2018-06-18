@@ -71,7 +71,7 @@ import           BDCS.API.Error(APIResponse(..), createAPIError, tryIO)
 import           BDCS.API.QueueStatus(QueueStatus(..), queueStatusText)
 import           BDCS.API.Recipe
 import           BDCS.API.Recipes
-import           BDCS.API.Results(guardReturnResults, returnResults)
+import           BDCS.API.Results(returnImage, returnResults)
 import           BDCS.API.TOMLMediaType
 import           BDCS.API.Utils(GitLock(..), applyLimits, argify, caseInsensitive, caseInsensitiveT)
 import           BDCS.API.Workspace
@@ -2298,19 +2298,10 @@ composeLogs serverConf uuid =
 -- Returns the output image from the build. The filename is set to the filename
 -- from the build with the UUID as a prefix. eg. UUID-root.tar.xz or UUID-boot.iso.
 composeImage :: KnownSymbol h => ServerConfig -> T.Text -> Handler (Headers '[Header h String] LBS.ByteString)
-composeImage cfg@ServerConfig{..} uuid = do
-    ComposeStatus{..} <- guardReturnResults cfg (cs uuid)
-
-    liftIO (readArtifactFile $ cfgResultsDir </> cs uuid) >>= \case
-        Nothing -> throwError $ createAPIError err400 False ["compose_image: Build " ++ cs uuid ++ " is missing image file."]
-        Just fn -> do f <- liftIO $ LBS.readFile (cfgResultsDir </> fn)
-                      return $ addHeader ("attachment; filename=" ++ filename fn ++ ";") f
+composeImage serverConf uuid = do
+    (fn, contents) <- returnImage serverConf (cs uuid)
+    return $ addHeader ("attachment; filename=" ++ filename fn ++ ";") contents
  where
-    readArtifactFile :: FilePath -> IO (Maybe String)
-    readArtifactFile dir =
-        CE.catch (Just <$> readFile (dir </> "ARTIFACT"))
-                 (\(_ :: CE.IOException) -> return Nothing)
-
     filename fn = cs uuid ++ "-" ++ takeFileName fn
 
 
