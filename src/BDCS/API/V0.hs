@@ -2215,7 +2215,7 @@ composeInfo ServerConfig{..} uuid = do
     -- Read the frozen.toml blueprint from the results directory
     readFrozenBlueprintFile :: FilePath -> ExceptT ServantErr IO Recipe
     readFrozenBlueprintFile dir = withExceptT (const frozen_error) $
-        tryIO (TIO.readFile (dir </> "compose.toml")) >>= ExceptT . return . parseRecipe
+        tryIO (TIO.readFile (dir </> "frozen.toml")) >>= ExceptT . return . parseRecipe
 
 
 data ComposeDeleteResponse = ComposeDeleteResponse {
