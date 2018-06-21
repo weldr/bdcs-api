@@ -100,6 +100,10 @@ library
     hs-source-dirs:     src
     default-language:   Haskell2010
     ghc-options:        -Wall
+                        -Wincomplete-uni-patterns
+                        -Wincomplete-record-updates
+                        -Wredundant-constraints
+                        -Wcompat
 
 executable bdcs-api-server
     main-is:            bdcs-api-server.hs
@@ -108,7 +112,12 @@ executable bdcs-api-server
                         bdcs-api
     other-modules:      Cmdline
     default-language:   Haskell2010
-    ghc-options:        -Wall -threaded
+    ghc-options:        -threaded
+                        -Wall
+                        -Wincomplete-uni-patterns
+                        -Wincomplete-record-updates
+                        -Wredundant-constraints
+                        -Wcompat
 
 test-suite spec
   type:                 exitcode-stdio-1.0
@@ -137,4 +146,10 @@ test-suite spec
   default-language:     Haskell2010
 
   -- Ignore warnings about unlisted modules, so we don't have to list every new test
-  ghc-options:          -Wall -Wno-unrecognised-warning-flags -Wno-missing-home-modules
+  ghc-options:          -Wall
+                        -Wno-unrecognised-warning-flags
+                        -Wno-missing-home-modules
+                        -Wincomplete-uni-patterns
+                        -Wincomplete-record-updates
+                        -Wredundant-constraints
+                        -Wcompat
