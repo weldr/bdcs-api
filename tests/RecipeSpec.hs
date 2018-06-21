@@ -14,8 +14,7 @@
 --
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes       #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module RecipeSpec
   where

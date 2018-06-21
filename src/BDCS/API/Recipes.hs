@@ -14,9 +14,6 @@
 --
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 
 {-| Git Recipe storage functions
 

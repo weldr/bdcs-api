@@ -98,7 +98,14 @@ library
     other-modules:      Paths_bdcs_api
 
     hs-source-dirs:     src
+
     default-language:   Haskell2010
+
+    default-extensions: LambdaCase,
+                        MultiWayIf,
+                        OverloadedStrings,
+                        RecordWildCards
+
     ghc-options:        -Wall
                         -Wincomplete-uni-patterns
                         -Wincomplete-record-updates
@@ -111,7 +118,14 @@ executable bdcs-api-server
     build-depends:      base >= 4.9 && < 5.0,
                         bdcs-api
     other-modules:      Cmdline
+
     default-language:   Haskell2010
+
+    default-extensions: LambdaCase,
+                        MultiWayIf,
+                        OverloadedStrings,
+                        RecordWildCards
+
     ghc-options:        -threaded
                         -Wall
                         -Wincomplete-uni-patterns
@@ -143,7 +157,13 @@ test-suite spec
                         time,
                         wai >= 3.2.1 && < 3.3,
                         warp >= 3.2.11 && < 3.3
+
   default-language:     Haskell2010
+
+  default-extensions:   LambdaCase,
+                        MultiWayIf,
+                        OverloadedStrings,
+                        RecordWildCards
 
   -- Ignore warnings about unlisted modules, so we don't have to list every new test
   ghc-options:          -Wall

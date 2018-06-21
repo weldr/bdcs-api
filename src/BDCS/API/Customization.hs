@@ -14,8 +14,6 @@
 --
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
 
 {-| Customizations applies to the content of an export -}
 module BDCS.API.Customization(RecipeCustomization(..),

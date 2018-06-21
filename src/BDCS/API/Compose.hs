@@ -16,9 +16,6 @@
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 {-| BDCS API Compose-related types and functions

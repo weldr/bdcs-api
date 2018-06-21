@@ -14,8 +14,6 @@
 --
 -- You should have received a copy of the GNU General Public License
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
 
 {-| Recipe is used to store information about what packages are included in a composition.
 

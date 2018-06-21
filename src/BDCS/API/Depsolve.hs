@@ -16,9 +16,6 @@
 -- along with bdcs-api.  If not, see <http://www.gnu.org/licenses/>.
 
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 
 module BDCS.API.Depsolve(PackageNEVRA(..),
                          mkPackageNEVRA,
